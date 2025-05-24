@@ -11,7 +11,7 @@ This project lets you interactively query a collection of pdfs using:
 - Python 3.8+
 - Windows OS
 - An Ollama-compatible LLM server running (e.g., via `ollama serve`)
-- CFA Level 2 PDFs organized under `C:\Users\Admin\OneDrive\CFAL2`
+- PDFs
 
 
 ## Setup
