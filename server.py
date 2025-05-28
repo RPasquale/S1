@@ -223,6 +223,7 @@ async def get_training_status():
 @app.post("/training/start")
 async def start_training(background_tasks: BackgroundTasks):
     """Manually start model training."""
+    global training_status
     if training_status["is_training"]:
         raise HTTPException(status_code=400, detail="Training already in progress")
     
@@ -232,12 +233,134 @@ async def start_training(background_tasks: BackgroundTasks):
 @app.post("/training/cancel")
 async def cancel_training():
     """Cancel ongoing model training."""
+    global training_status
     if not training_status["is_training"]:
         raise HTTPException(status_code=400, detail="No training in progress")
     
     # In a real implementation, we would need a proper way to cancel the background task
     # This is just a simple state change
-    global training_status
     training_status["is_training"] = False
     training_status["status_message"] = "Training cancelled by user"
     return {"status": "cancelled"}
+
+# DSPy Function API endpoints
+@app.post("/dspy/functions")
+async def save_dspy_function(function_data: dict):
+    """Save a new DSPy function."""
+    try:
+        # Create DSPy functions directory if it doesn't exist
+        dspy_dir = os.path.join(".", "dspy_functions")
+        os.makedirs(dspy_dir, exist_ok=True)
+        
+        # Save function definition to file
+        function_file = os.path.join(dspy_dir, f"{function_data['name']}.json")
+        with open(function_file, 'w') as f:
+            json.dump(function_data, f, indent=2)
+        
+        return {"status": "success", "message": "DSPy function saved successfully"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error saving DSPy function: {str(e)}")
+
+@app.get("/dspy/functions")
+async def get_dspy_functions():
+    """Get all saved DSPy functions."""
+    try:
+        dspy_dir = os.path.join(".", "dspy_functions")
+        if not os.path.exists(dspy_dir):
+            return {"functions": []}
+        
+        functions = []
+        for filename in os.listdir(dspy_dir):
+            if filename.endswith('.json'):
+                with open(os.path.join(dspy_dir, filename), 'r') as f:
+                    function_data = json.load(f)
+                    functions.append(function_data)
+        
+        return {"functions": functions}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error loading DSPy functions: {str(e)}")
+
+@app.delete("/dspy/functions/{function_name}")
+async def delete_dspy_function(function_name: str):
+    """Delete a DSPy function."""
+    try:
+        dspy_dir = os.path.join(".", "dspy_functions")
+        function_file = os.path.join(dspy_dir, f"{function_name}.json")
+        
+        if os.path.exists(function_file):
+            os.remove(function_file)
+            return {"status": "success", "message": "DSPy function deleted successfully"}
+        else:
+            raise HTTPException(status_code=404, detail="DSPy function not found")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error deleting DSPy function: {str(e)}")
+
+# Data Extraction API endpoints  
+@app.get("/data-extraction/status")
+async def get_data_extraction_status():
+    """Get data extraction system status."""
+    try:
+        # Check if data extraction server is running
+        import requests
+        response = requests.get("http://127.0.0.1:8001/status", timeout=5)
+        server_status = response.json() if response.status_code == 200 else {"status": "offline"}
+    except:
+        server_status = {"status": "offline"}
+    
+    return {
+        "server_status": server_status,
+        "recent_extractions": [],  # TODO: Implement extraction history
+        "statistics": {
+            "total_extractions": 0,
+            "success_rate": 0,
+            "last_extraction": None
+        }
+    }
+
+@app.post("/data-extraction/start")
+async def start_data_extraction(extraction_config: dict):
+    """Start a data extraction job."""
+    try:
+        # TODO: Integrate with data extraction server
+        # For now, return a placeholder response
+        return {
+            "status": "started",
+            "job_id": f"job_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
+            "message": "Data extraction job started"
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error starting data extraction: {str(e)}")
+
+# Advanced Training API endpoints
+@app.post("/training/advanced")
+async def start_advanced_training(training_config: dict):
+    """Start advanced training with custom configuration."""
+    try:
+        from model_training import start_training_session
+        
+        # Extract training parameters
+        training_type = training_config.get("type", "next_token_prediction")
+        documents = training_config.get("documents", [])
+        file_paths = training_config.get("file_paths", [])
+        model_config = training_config.get("model_config", {})
+        
+        # Start training session
+        result = start_training_session(
+            training_type=training_type,
+            documents=documents,
+            file_paths=file_paths,
+            model_config=model_config
+        )
+        
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error starting advanced training: {str(e)}")
+
+@app.get("/training/capabilities")
+async def get_training_capabilities():
+    """Get available training capabilities."""
+    try:
+        from model_training import get_training_capabilities
+        return get_training_capabilities()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error getting training capabilities: {str(e)}")

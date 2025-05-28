@@ -4,7 +4,7 @@ This project lets you interactively query a collection of PDFs with advanced mod
 
 - **Modern React/TypeScript Frontend**: Sleek, responsive UI with conversation management
 - **pylate/Reasoning ModernColBERT**: Advanced document embedding and retrieval
-- **dspy/deepseek-r1:8b**: LLM-powered Chain-of-Thought prompting
+- **dspy/deepseek-r1:1.5b**: LLM-powered Chain-of-Thought prompting
 - **Adaptive Model Training**: Automatic fine-tuning of models on your documents
 - **Multi-stage Query Generation**: Sophisticated query extraction for better understanding
 

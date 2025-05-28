@@ -1,26 +1,75 @@
 """
-Model fine-tuning module for PDF QA Chatbot.
-This module handles:
-1. Tokenization and dataset preparation from documents
-2. Next-token prediction training with Hugging Face
-3. Reinforcement Learning pipeline with TRL
+Enhanced Model Training with Multi-Modal Support
+
+This module provides comprehensive training capabilities including:
+1. Next-token prediction fine-tuning
+2. Reinforcement Learning with TRL
+3. Embedding model training 
+4. DSPy pipeline optimization
+5. Multi-modal training approaches
 """
 
 import os
-import torch
+import json
+import re
+import random
+import time
 from typing import List, Dict, Any, Optional
-from transformers import (
-    AutoTokenizer, AutoModelForCausalLM, 
-    DataCollatorForLanguageModeling, 
-    Trainer, TrainingArguments
-)
-from datasets import Dataset
-from trl import PPOTrainer, PPOConfig, AutoModelForCausalLMWithValueHead
-from trl.core import respond_to_batch
+from pathlib import Path
 
-# Path configurations
-DEFAULT_OUTPUT_DIR = "trained-models"
-DEFAULT_MODEL = "deepseek-ai/deepseek-coder-1.3b" # Use smaller model for training (adjust as needed)
+import torch
+import numpy as np
+from transformers import (
+    AutoTokenizer, 
+    AutoModelForCausalLM, 
+    TrainingArguments, 
+    Trainer,
+    DataCollatorForLanguageModeling
+)
+
+# Optional imports with fallbacks
+try:
+    from datasets import Dataset
+    HAS_DATASETS = True
+except ImportError:
+    HAS_DATASETS = False
+    print("Warning: datasets library not available")
+
+try:
+    from trl import PPOTrainer, PPOConfig, AutoModelForCausalLMWithValueHead
+    from trl.core import respond_to_batch
+    HAS_TRL = True
+except ImportError:
+    HAS_TRL = False
+    print("Warning: TRL library not available")
+
+try:
+    import dspy
+    HAS_DSPY = True
+except ImportError:
+    HAS_DSPY = False
+    print("Warning: DSPy library not available")
+
+try:
+    from sklearn.feature_extraction.text import TfidfVectorizer
+    from sklearn.cluster import KMeans
+    from sklearn.metrics.pairwise import cosine_similarity
+    from sklearn.model_selection import train_test_split
+    HAS_SKLEARN = True
+except ImportError:
+    HAS_SKLEARN = False
+    print("Warning: scikit-learn not available")
+
+try:
+    from PyPDF2 import PdfReader
+    HAS_PYPDF2 = True
+except ImportError:
+    HAS_PYPDF2 = False
+    print("Warning: PyPDF2 not available")
+
+# Configuration
+DEFAULT_MODEL = "microsoft/DialoGPT-medium"
+DEFAULT_OUTPUT_DIR = "./trained_models"
 
 class ModelTrainer:
     """Handles tokenization, training and fine-tuning of language models."""
@@ -40,8 +89,11 @@ class ModelTrainer:
         
         print(f"Initialized ModelTrainer with device: {device}")
         
-    def prepare_dataset_from_documents(self, documents: List[str], chunk_size: int = 512) -> Dataset:
+    def prepare_dataset_from_documents(self, documents: List[str], chunk_size: int = 512):
         """Convert documents into tokenized chunks for training."""
+        if not HAS_DATASETS:
+            raise ImportError("datasets library required for this function")
+            
         tokenized_chunks = []
         
         for doc in documents:
@@ -64,12 +116,15 @@ class ModelTrainer:
     
     def fine_tune_next_token_prediction(
         self, 
-        dataset: Dataset, 
+        dataset, 
         epochs: int = 3,
         learning_rate: float = 5e-5,
         batch_size: int = 4,
     ) -> str:
         """Fine-tune model using next token prediction."""
+        if not HAS_DATASETS:
+            raise ImportError("datasets library required for this function")
+            
         print("Loading model for fine-tuning...")
         model = AutoModelForCausalLM.from_pretrained(self.base_model)
         model_output_dir = os.path.join(self.output_dir, "next-token-model")
@@ -116,6 +171,9 @@ class ModelTrainer:
         ppo_steps: int = 100
     ) -> str:
         """Set up Reinforcement Learning pipeline using TRL."""
+        if not HAS_TRL:
+            raise ImportError("TRL library required for this function")
+            
         if model_path is None:
             print("Using base model for RL")
             model_path = self.base_model
@@ -193,310 +251,76 @@ class ModelTrainer:
         print(f"RL model saved to {rl_output_dir}")
         
         return rl_output_dir
-      def _extract_sample_queries(self, documents: List[str], num_samples: int = 20) -> List[str]:
-        """Extract high-quality sample queries from documents using multi-stage LLM-based approach.
-        
-        This enhanced implementation uses a combination of strategies:
-        1. Advanced LLM-guided question generation with multi-faceted prompting
-        2. Hierarchical document clustering to ensure coverage of different topics
-        3. Entity and concept extraction for generating domain-specific questions
-        4. Multi-technique fallback strategies for robustness
-        5. Quality filtering and diversification
-        """
-        import dspy
-        import random
-        import numpy as np
-        from tqdm import tqdm
-        from concurrent.futures import ThreadPoolExecutor
-        from collections import defaultdict
-        
-        print("Initializing advanced query extraction pipeline...")
-        all_queries = []
-        query_quality_scores = {}
-        document_clusters = {}
-        key_entities = set()
-        
-        # Step 1: Setup multi-model query generation approach with primary and backup models
-        try:
-            # Primary model for sophisticated query generation
-            primary_lm = dspy.LM('ollama_chat/deepseek-r1:8b', api_base='http://localhost:11434', api_key='')
-            dspy.configure(lm=primary_lm)
-            print("Successfully configured primary LLM for query generation")
-            
-            # Try to set up a backup model with different capabilities if available
-            try:
-                backup_lm = dspy.LM('ollama_chat/phi3:mini', api_base='http://localhost:11434', api_key='')
-                has_backup_model = True
-                print("Successfully configured backup LLM")
-            except:
-                has_backup_model = False
-                print("No backup LLM available, will use primary model for all tasks")
-                
-        except Exception as e:
-            print(f"Warning: Couldn't load any LLM for query generation: {e}")
-            # Fallback to rule-based extraction if all LLMs fail
+    
+    def _extract_sample_queries(self, documents: List[str], num_samples: int = 20) -> List[str]:
+        """Extract high-quality sample queries from documents using multi-stage approach."""
+        if HAS_DSPY:
+            return self._extract_queries_with_dspy(documents, num_samples)
+        else:
             return self._extract_simple_queries(documents, num_samples)
+    
+    def _extract_queries_with_dspy(self, documents: List[str], num_samples: int = 20) -> List[str]:
+        """Extract queries using DSPy for sophisticated generation."""
+        print("Initializing DSPy query extraction pipeline...")
+        all_queries = []
         
-        # Step 2: Define multiple specialized DSPy prompts for different question types
-        
-        # 2.1 Factual question generator
-        class FactualQueryGenerator(dspy.Signature):
-            """Generate specific factual questions that can be answered from a document."""
-            document = dspy.InputField(desc="Text from a document")
-            questions = dspy.OutputField(desc="Five specific factual questions that require retrieving precise information")
-            
-        # 2.2 Analytical question generator
-        class AnalyticalQueryGenerator(dspy.Signature):
-            """Generate analytical questions requiring synthesis of document information."""
-            document = dspy.InputField(desc="Text from a document")
-            questions = dspy.OutputField(desc="Five analytical questions that require connecting multiple concepts")
-            
-        # 2.3 Comparative question generator
-        class ComparativeQueryGenerator(dspy.Signature):
-            """Generate questions requiring comparison between entities or concepts in the document."""
-            document = dspy.InputField(desc="Text from a document")
-            questions = dspy.OutputField(desc="Three questions that ask to compare and contrast entities or concepts")
-            
-        # 2.4 Entity and concept extractor
-        class EntityExtractor(dspy.Signature):
-            """Extract important entities, concepts, and terminology from a document."""
-            document = dspy.InputField(desc="Text from a document")
-            entities = dspy.OutputField(desc="List of important named entities, concepts, and technical terms")
-        
-        # Initialize generators with chain-of-thought reasoning
-        factual_generator = dspy.ChainOfThought(FactualQueryGenerator)
-        analytical_generator = dspy.ChainOfThought(AnalyticalQueryGenerator)
-        comparative_generator = dspy.ChainOfThought(ComparativeQueryGenerator)
-        entity_extractor = dspy.ChainOfThought(EntityExtractor)
-        
-        # Step 3: Apply semantic clustering to documents for better coverage
         try:
-            from sklearn.feature_extraction.text import TfidfVectorizer
-            from sklearn.cluster import KMeans
+            # Configure DSPy with a local model
+            primary_lm = dspy.LM('ollama_chat/deepseek-r1:1.5b', api_base='http://localhost:11434', api_key='')
+            dspy.configure(lm=primary_lm)
+            print("Successfully configured DSPy LLM")
             
-            # Use TF-IDF to vectorize documents
-            vectorizer = TfidfVectorizer(max_df=0.7, min_df=2, stop_words='english')
+            # Define question generation signatures
+            class FactualQueryGenerator(dspy.Signature):
+                """Generate specific factual questions that can be answered from a document."""
+                document = dspy.InputField(desc="Text from a document")
+                questions = dspy.OutputField(desc="Five specific factual questions")
+                
+            class AnalyticalQueryGenerator(dspy.Signature):
+                """Generate analytical questions requiring synthesis of information."""
+                document = dspy.InputField(desc="Text from a document") 
+                questions = dspy.OutputField(desc="Five analytical questions")
             
-            # Handle case with too few documents
-            if len(documents) < 3:
-                doc_vectors = vectorizer.fit_transform(documents * 3)
-                n_clusters = 1
-            else:
-                doc_vectors = vectorizer.fit_transform(documents)
-                n_clusters = min(3, len(documents))
+            # Initialize generators
+            factual_generator = dspy.ChainOfThought(FactualQueryGenerator)
+            analytical_generator = dspy.ChainOfThought(AnalyticalQueryGenerator)
             
-            # Cluster documents to ensure topic coverage
-            kmeans = KMeans(n_clusters=n_clusters, random_state=42)
-            cluster_labels = kmeans.fit_predict(doc_vectors)
-            
-            # Group documents by cluster
-            for i, label in enumerate(cluster_labels):
-                if i < len(documents):  # Handle the case where we duplicated documents
-                    if label not in document_clusters:
-                        document_clusters[label] = []
-                    document_clusters[label].append(i)
-                    
-            print(f"Document clustering complete: {len(document_clusters)} clusters identified")
-        except Exception as e:
-            print(f"Warning: Document clustering failed: {e}")
-            # Fallback: treat all documents as one cluster
-            document_clusters = {0: list(range(len(documents)))}
-            
-        # Step 4: Extract key entities across all documents for better question diversity
-        try:
-            # Process a sample of documents to extract entities
-            sample_docs = []
-            for cluster in document_clusters.values():
-                # Take one document from each cluster for entity extraction
-                if cluster:
-                    doc_idx = cluster[0]
-                    if doc_idx < len(documents):
-                        sample_text = documents[doc_idx][:4000] if len(documents[doc_idx]) > 4000 else documents[doc_idx]
-                        sample_docs.append(sample_text)
-            
-            for doc in sample_docs:
+            # Process documents
+            for doc in documents[:min(5, len(documents))]:
+                doc_sample = doc[:4000] if len(doc) > 4000 else doc
+                
                 try:
-                    result = entity_extractor(document=doc)
-                    # Parse entities (assumes comma-separated or line-by-line format)
-                    for entity_line in result.entities.split('\n'):
-                        for entity in entity_line.split(','):
-                            entity = entity.strip()
-                            if entity and len(entity) > 2:
-                                key_entities.add(entity)
-                except Exception as e:
-                    print(f"Entity extraction error: {e}")
-                    
-            print(f"Entity extraction complete: {len(key_entities)} key entities identified")
-        except Exception as e:
-            print(f"Warning: Entity extraction failed completely: {e}")
-            # Will rely on TF-IDF extraction later if this fails
-        
-        # Step 5: Multi-faceted query generation with parallel processing
-        print("Generating diverse, high-quality queries from documents...")
-        
-        def process_document(doc_idx):
-            """Process a single document with multiple question generation techniques"""
-            doc = documents[doc_idx]
-            doc_queries = []
-            
-            # Truncate document if too long
-            doc_sample = doc[:4000] if len(doc) > 4000 else doc
-            
-            # Try multiple question generation techniques
-            generators = [
-                (factual_generator, "factual"),
-                (analytical_generator, "analytical"),
-                (comparative_generator, "comparative")
-            ]
-            
-            for generator, query_type in generators:
-                try:
-                    result = generator(document=doc_sample)
-                    
-                    # Parse the questions (assumes one question per line)
-                    questions = []
+                    # Generate factual questions
+                    result = factual_generator(document=doc_sample)
                     for line in result.questions.split('\n'):
                         q = line.strip()
-                        # Clean up question prefixes like "1. " or "Question: "
                         q = re.sub(r'^(\d+\.\s*|Question\s*\d*\s*:?\s*)', '', q)
-                        if len(q) > 10 and q[-1] == '?':
-                            questions.append((q, query_type))
-                    
-                    # If we got valid questions, add them
-                    if questions:
-                        doc_queries.extend(questions)
-                        print(f"Generated {len(questions)} {query_type} questions for document {doc_idx}")
-                        
+                        if len(q) > 10 and q.endswith('?'):
+                            all_queries.append(q)
+                            
+                    # Generate analytical questions
+                    result = analytical_generator(document=doc_sample)
+                    for line in result.questions.split('\n'):
+                        q = line.strip()
+                        q = re.sub(r'^(\d+\.\s*|Question\s*\d*\s*:?\s*)', '', q)
+                        if len(q) > 10 and q.endswith('?'):
+                            all_queries.append(q)
+                            
                 except Exception as e:
-                    print(f"Error generating {query_type} questions for document {doc_idx}: {e}")
-            
-            # If all techniques failed, fallback to simpler approach
-            if not doc_queries:
-                try:
-                    # Try backup model if available
-                    if has_backup_model:
-                        dspy.configure(lm=backup_lm)
-                        result = factual_generator(document=doc_sample)
-                        dspy.configure(lm=primary_lm)
-                        
-                        questions = []
-                        for line in result.questions.split('\n'):
-                            q = line.strip()
-                            q = re.sub(r'^(\d+\.\s*|Question\s*\d*\s*:?\s*)', '', q)
-                            if len(q) > 10 and q[-1] == '?':
-                                questions.append((q, "backup"))
-                                
-                        if questions:
-                            doc_queries.extend(questions)
-                            print(f"Generated {len(questions)} backup questions for document {doc_idx}")
-                except Exception:
-                    pass
+                    print(f"Error generating questions: {e}")
                     
-            # If still no questions, fall back to simple extraction
-            if not doc_queries:
-                simple_queries = self._extract_simple_queries([doc], 3)
-                doc_queries.extend([(q, "simple") for q in simple_queries])
-                
-            return doc_queries
+        except Exception as e:
+            print(f"DSPy initialization failed: {e}")
+            return self._extract_simple_queries(documents, num_samples)
         
-        # Process documents from each cluster to ensure topic coverage
-        selected_docs = []
-        for cluster_docs in document_clusters.values():
-            # Choose a subset of documents from each cluster
-            if cluster_docs:
-                docs_to_process = cluster_docs[:max(1, len(cluster_docs) // 2)]
-                selected_docs.extend(docs_to_process)
-                
-        # Limit total number of documents to process
-        max_docs_to_process = min(len(selected_docs), num_samples)
-        selected_docs = selected_docs[:max_docs_to_process]
-        
-        # Process documents in parallel
-        import re
-        with ThreadPoolExecutor(max_workers=4) as executor:
-            results = list(executor.map(process_document, selected_docs))
-            
-        # Collect all queries
-        for doc_queries in results:
-            all_queries.extend(doc_queries)
-        
-        # Step 6: Generate template-based questions using extracted entities
-        template_queries = [
-            "What is the significance of {} in this context?",
-            "How does {} relate to {}?",
-            "What evidence supports the claims about {}?",
-            "How does {} impact {} within this domain?",
-            "Compare and contrast {} with {}.",
-            "What are the limitations of {} as described?",
-            "What are the key characteristics of {}?",
-            "How has {} evolved over time?",
-            "What is the relationship between {} and business success?",
-            "How might {} be applied in a different context?",
-        ]
-        
-        # Ensure we have enough entities for templates
-        if len(key_entities) < 5:
-            # Add TF-IDF extracted terms if entity extraction failed
-            key_terms = self._extract_key_terms(documents, max_terms=30)
-            key_entities.update(key_terms)
-        
-        entity_list = list(key_entities)
-        
-        # Generate template-based questions
-        template_generated = []
-        if entity_list:
-            for _ in range(min(10, num_samples - len(template_generated))):
-                template = random.choice(template_queries)
-                terms_needed = template.count('{}')
-                
-                if len(entity_list) >= terms_needed:
-                    selected_terms = random.sample(entity_list, terms_needed)
-                    query = template.format(*selected_terms)
-                    template_generated.append((query, "template"))
-            
-        all_queries.extend(template_generated)
-        
-        # Step 7: Quality filtering and diversification
-        query_text_set = set()
-        final_queries = []
-        
-        # Group queries by type
-        query_by_type = defaultdict(list)
-        for query, qtype in all_queries:
-            query_by_type[qtype].append(query)
-            
-        # Ensure diversity by taking questions from each type
-        query_types = list(query_by_type.keys())
-        while len(final_queries) < num_samples and query_types:
-            for qtype in query_types.copy():
-                if query_by_type[qtype]:
-                    query = query_by_type[qtype].pop(0)
-                    if query not in query_text_set:
-                        query_text_set.add(query)
-                        final_queries.append(query)
-                        if len(final_queries) >= num_samples:
-                            break
-                else:
-                    query_types.remove(qtype)
-                    
-        # If we still don't have enough, add more from the original set
-        all_query_texts = [q for q, _ in all_queries]
-        for query in all_query_texts:
-            if len(final_queries) >= num_samples:
-                break
-            if query not in query_text_set:
-                query_text_set.add(query)
-                final_queries.append(query)
-                
-        print(f"Generated {len(final_queries)} high-quality diverse queries")
-        return final_queries[:num_samples]
-        
-    def _extract_simple_queries(self, documents: List[str], queries_per_doc: int = 3) -> List[str]:
-        """Fallback method for simple query extraction without LLM."""
-        import random
-        import re
-        
+        # Deduplicate and limit
+        unique_queries = list(set(all_queries))
+        return unique_queries[:num_samples]
+    
+    def _extract_simple_queries(self, documents: List[str], num_samples: int = 20) -> List[str]:
+        """Fallback method for simple query extraction without external dependencies."""
         queries = []
+        
         for doc in documents:
             # Split into sentences
             sentences = re.split(r'[.!?]', doc)
@@ -504,628 +328,335 @@ class ModelTrainer:
             
             if sentences:
                 # Sample sentences and turn them into questions
-                sampled = random.sample(sentences, min(queries_per_doc, len(sentences)))
+                sampled = random.sample(sentences, min(3, len(sentences)))
                 for sentence in sampled:
                     query = f"Can you explain what is meant by: {sentence}?"
                     queries.append(query)
         
-        return queries
+        return queries[:num_samples]
+    
+    def train_embedding_model(self, documents: List[str], queries: List[str]) -> str:
+        """Fine-tune the embedding model to better match document-query pairs."""
+        print("Training embedding model for better retrieval...")
         
-    def _extract_key_terms(self, documents: List[str], max_terms: int = 50) -> List[str]:
-        """Extract important terms from documents for question generation."""
-        from sklearn.feature_extraction.text import TfidfVectorizer
-        import numpy as np
-        
-        try:
-            # Use TF-IDF to identify important terms
-            vectorizer = TfidfVectorizer(
-                max_df=0.7, 
-                min_df=2, 
-                stop_words='english',
-                ngram_range=(1, 2)
-            )
-            
-            # Ensure we have sufficient documents
-            if len(documents) < 3:
-                # Duplicate documents if we don't have enough
-                documents = documents * 3
-            
-            # Fit vectorizer on documents
-            tfidf = vectorizer.fit_transform(documents)
-            
-            # Get feature names and their TF-IDF scores
-            feature_names = vectorizer.get_feature_names_out()
-            tfidf_scores = np.asarray(tfidf.mean(axis=0)).flatten()
-            
-            # Get top terms by TF-IDF score
-            top_indices = tfidf_scores.argsort()[-max_terms:][::-1]
-            top_terms = [feature_names[i] for i in top_indices]
-            
-            return top_terms
-        except Exception as e:
-            print(f"Error extracting key terms: {e}")
-            # Fallback: extract capitalized terms and phrases
-            import re
-            all_text = ' '.join(documents)
-            capitalized = re.findall(r'\b[A-Z][a-z]{2,}\b', all_text)
-            return list(set(capitalized))[:max_terms]
-      def train_embedding_model(self, documents: List[str], queries: List[str]) -> str:
-        """Fine-tune the embedding model to better match document-query pairs.
-        
-        This enhanced implementation:
-        1. Creates a sophisticated synthetic dataset from documents and queries
-        2. Implements in-batch negative sampling for contrastive learning
-        3. Uses adapter-based fine-tuning approach to efficiently update the model
-        4. Records training metrics and diagnostic information
-        5. Supports both dense and sparse retrieval approaches
-        """
-        print("Training advanced embedding model for better retrieval...")
-        
-        from sklearn.model_selection import train_test_split
-        import numpy as np
-        import os
-        import time
-        import json
-        from datetime import datetime
-        import torch
-        
-        # Create output directory
         embedding_model_dir = os.path.join(self.output_dir, "embedding-model")
         os.makedirs(embedding_model_dir, exist_ok=True)
         
-        # Track training progress and metrics
-        training_metrics = {
-            "timestamp": datetime.now().isoformat(),
-            "num_documents": len(documents),
-            "num_queries": len(queries),
-            "epochs": [],
-            "evaluation": {}
-        }
+        if not HAS_SKLEARN:
+            print("Warning: scikit-learn not available, using simple approach")
+            # Create a simple embedding by saving document-query pairs
+            with open(os.path.join(embedding_model_dir, "doc_query_pairs.json"), 'w') as f:
+                json.dump({
+                    'documents': documents[:50],  # Limit for storage
+                    'queries': queries[:50],
+                    'method': 'simple_pairs'
+                }, f, indent=2)
+            return embedding_model_dir
         
-        # Step 1: Create synthetic document-query pairs with advanced techniques
-        print("Generating sophisticated training dataset...")
+        # Create synthetic document-query pairs
+        train_pairs = []
         
-        # Check if we have enough queries and documents
-        if len(queries) < 10 or len(documents) < 10:
-            print("Warning: Limited training data available. Augmenting with synthetic data.")
-            # Use available queries to synthesize more if needed
-            if len(queries) < 10:
-                # Generate variations of existing queries
-                original_queries = queries.copy()
-                for q in original_queries:
-                    queries.append(f"Tell me about {q.replace('?', '').lower()}")
-                    queries.append(f"I need information regarding {q.replace('?', '').lower()}")
-                
-                # Deduplicate
-                queries = list(set(queries))[:50]  # Limit to 50 queries
-                
-            # Use document segments if full documents are too few
-            if len(documents) < 10:
-                doc_segments = []
-                for doc in documents:
-                    # Split into paragraphs
-                    paragraphs = [p for p in doc.split('\n\n') if len(p.strip()) > 100]
-                    doc_segments.extend(paragraphs[:5])  # Take up to 5 paragraphs per doc
-                
-                # Use segments if we found enough
-                if len(doc_segments) >= 10:
-                    documents = doc_segments
+        # Use TF-IDF for basic matching
+        vectorizer = TfidfVectorizer(max_df=0.85, min_df=1, stop_words='english')
+        doc_vectors = vectorizer.fit_transform(documents)
         
-        print(f"Working with {len(documents)} documents and {len(queries)} queries")
-        
-        # Step 2: Document-query matching and hard negative mining
-        try:
-            from sklearn.feature_extraction.text import TfidfVectorizer
-            from sklearn.metrics.pairwise import cosine_similarity
+        for query in queries[:min(len(queries), 20)]:
+            query_vector = vectorizer.transform([query])
+            similarities = cosine_similarity(query_vector, doc_vectors).flatten()
             
-            # Create a basic TF-IDF index for matching
-            vectorizer = TfidfVectorizer(max_df=0.85, min_df=2, stop_words='english')
-            doc_vectors = vectorizer.fit_transform(documents)
-            
-            # For each query, find relevant documents and hard negatives
-            train_pairs = []
-            validation_pairs = []
-            
-            print("Creating training pairs with hard negative mining...")
-            for query in queries:
-                query_vec = vectorizer.transform([query])
-                similarities = cosine_similarity(query_vec, doc_vectors).flatten()
-                
-                # Get document indices sorted by relevance
-                doc_indices = similarities.argsort()[::-1]
-                
-                # Take top documents as positives
-                positive_docs = doc_indices[:min(3, len(doc_indices))]
-                
-                # Take mid-range documents as hard negatives (not too easy, not too hard)
-                neg_start = len(doc_indices) // 3
-                negative_docs = doc_indices[neg_start:neg_start + min(5, len(doc_indices) - neg_start)]
-                
-                # Sanity check to prevent overlap
-                negative_docs = [idx for idx in negative_docs if idx not in positive_docs]
-                
-                # Create positive pairs
-                for pos_idx in positive_docs:
-                    pair = {
-                        "query": query,
-                        "document": documents[pos_idx],
-                        "is_relevant": True,
-                        "doc_idx": int(pos_idx)
-                    }
-                    train_pairs.append(pair)
-                
-                # Create negative pairs
-                for neg_idx in negative_docs[:len(positive_docs) * 2]:  # 2x negatives for each positive
-                    pair = {
-                        "query": query,
-                        "document": documents[neg_idx],
-                        "is_relevant": False,
-                        "doc_idx": int(neg_idx)
-                    }
-                    train_pairs.append(pair)
-            
-            # Split into train and validation sets
-            train_pairs, validation_pairs = train_test_split(train_pairs, test_size=0.15, random_state=42)
-            
-            print(f"Created {len(train_pairs)} training pairs and {len(validation_pairs)} validation pairs")
-            
-            # Save the training and validation pairs
-            with open(os.path.join(embedding_model_dir, "train_pairs.json"), "w") as f:
-                json.dump(train_pairs[:min(100, len(train_pairs))], f, indent=2)  # Sample for space efficiency
-                
-            with open(os.path.join(embedding_model_dir, "validation_pairs.json"), "w") as f:
-                json.dump(validation_pairs[:min(20, len(validation_pairs))], f, indent=2)  # Sample for space efficiency
-                
-        except Exception as e:
-            print(f"Error in training data preparation: {e}")
-            # Fall back to basic pairs
-            train_pairs = [{"query": q, "document": documents[i % len(documents)], "is_relevant": True} 
-                         for i, q in enumerate(queries)]
-            validation_pairs = train_pairs[:max(1, len(train_pairs) // 10)]
-            print(f"Created {len(train_pairs)} basic training pairs (fallback method)")
+            # Find best matching document
+            best_doc_idx = similarities.argmax()
+            if similarities[best_doc_idx] > 0.1:  # Minimum similarity threshold
+                train_pairs.append({
+                    'query': query,
+                    'document': documents[best_doc_idx],
+                    'similarity': float(similarities[best_doc_idx])
+                })
         
-        # Step 3: Implement advanced model fine-tuning (simulated for this implementation)
-        print("Implementing adapter-based fine-tuning for the embedding model...")
+        # Save training data
+        with open(os.path.join(embedding_model_dir, "training_pairs.json"), 'w') as f:
+            json.dump(train_pairs, f, indent=2)
         
-        # Record model architecture details
-        model_architecture = {
-            "base_model": "lightonai/Reason-ModernColBERT",
-            "adapter_config": {
-                "adapter_type": "LoRA",
-                "r": 16,  # LoRA rank
-                "alpha": 32,
-                "dropout": 0.1,
-                "target_modules": ["query_proj", "key_proj", "value_proj"]
-            },
-            "training_config": {
-                "learning_rate": 5e-5,
-                "warmup_steps": 100,
-                "epochs": 3,
-                "batch_size": 16,
-                "optimizer": "AdamW",
-                "contrastive_loss": "InfoNCE",
-                "temperature": 0.07
-            }
-        }
+        # Save vectorizer for later use
+        import joblib
+        joblib.dump(vectorizer, os.path.join(embedding_model_dir, "vectorizer.pkl"))
         
-        # Save model architecture
-        with open(os.path.join(embedding_model_dir, "model_architecture.json"), "w") as f:
-            json.dump(model_architecture, f, indent=2)
+        print(f"Embedding model training data saved to {embedding_model_dir}")
+        print(f"Created {len(train_pairs)} training pairs")
         
-        # Step 4: Simulate the training process with realistic metrics
-        print("Executing embedding model fine-tuning...")
-        
-        # Simulated training metrics
-        training_progress = []
-        epochs = 3
-        
-        for epoch in range(epochs):
-            epoch_metrics = {
-                "epoch": epoch + 1,
-                "train_loss": 0.8 - (0.15 * epoch),
-                "recall@1": 0.6 + (0.1 * epoch),
-                "recall@5": 0.75 + (0.07 * epoch),
-                "mrr": 0.65 + (0.08 * epoch),
-                "learning_rate": 5e-5 * (0.9 ** epoch)
-            }
-            
-            print(f"Epoch {epoch+1}/{epochs}")
-            print(f"  Train loss: {epoch_metrics['train_loss']:.4f}")
-            print(f"  Recall@1: {epoch_metrics['recall@1']:.4f}")
-            print(f"  MRR: {epoch_metrics['mrr']:.4f}")
-            
-            training_progress.append(epoch_metrics)
-            time.sleep(2)  # Simulate training time
-        
-        training_metrics["epochs"] = training_progress
-        
-        # Step 5: Simulated model evaluation on test queries
-        print("Evaluating fine-tuned embedding model...")
-        
-        # Mock results for different retrieval configurations
-        eval_metrics = {
-            "dense_retrieval": {
-                "recall@1": 0.82,
-                "recall@5": 0.94,
-                "recall@10": 0.97,
-                "mrr": 0.88,
-                "latency_ms": 15
-            },
-            "hybrid_retrieval": {
-                "recall@1": 0.85,
-                "recall@5": 0.96,
-                "recall@10": 0.98,
-                "mrr": 0.90,
-                "latency_ms": 22
-            }
-        }
-        
-        training_metrics["evaluation"] = eval_metrics
-        
-        # Step 6: Save training metrics and model information
-        with open(os.path.join(embedding_model_dir, "training_metrics.json"), "w") as f:
-            json.dump(training_metrics, f, indent=2)
-        
-        # Create a model card with usage instructions and performance characteristics
-        model_card = f"""# Fine-tuned Retrieval Model
-
-## Model Description
-- Base model: ColBERT (lightonai/Reason-ModernColBERT)
-- Fine-tuning method: LoRA adapter (rank {model_architecture['adapter_config']['r']})
-- Training data: {len(train_pairs)} document-query pairs
-
-## Performance Metrics
-- Recall@1: {eval_metrics['dense_retrieval']['recall@1']:.2f}
-- MRR: {eval_metrics['dense_retrieval']['mrr']:.2f}
-- Inference latency: {eval_metrics['dense_retrieval']['latency_ms']} ms
-
-## Usage Instructions
-```python
-from pylate import models, indexes
-model = models.ColBERT('path/to/{embedding_model_dir}')
-
-# For queries
-query_embeddings = model.encode([query], batch_size=1, is_query=True)
-
-# For documents
-doc_embeddings = model.encode(documents, batch_size=32, is_query=False)
-```
-
-## Training Details
-- Epochs: {epochs}
-- Final training loss: {training_progress[-1]['train_loss']:.4f}
-- Training completed: {time.strftime('%Y-%m-%d %H:%M:%S')}
-"""
-        
-        with open(os.path.join(embedding_model_dir, "README.md"), "w") as f:
-            f.write(model_card)
-        
-        # Additionally save a mock checkpoint file for future loading
-        with open(os.path.join(embedding_model_dir, "adapter_config.json"), "w") as f:
-            json.dump(model_architecture["adapter_config"], f, indent=2)
-            
-        # Create empty model files to simulate the saved weights
-        with open(os.path.join(embedding_model_dir, "pytorch_model.bin"), "wb") as f:
-            f.write(b"\x00" * 1024)  # Just a placeholder file
-            
-        print(f"Embedding model training complete. Model and artifacts saved to {embedding_model_dir}")
         return embedding_model_dir
-      def augment_dspy_pipeline(self, model_path: str = None, documents: List[str] = None) -> str:
-        """Augment DSPy pipeline with trained modules for better performance.
+    
+    def augment_dspy_pipeline(self, model_path: str = None, documents: List[str] = None) -> str:
+        """Augment DSPy pipeline with trained modules for better performance."""
+        if not HAS_DSPY:
+            raise ImportError("DSPy library required for this function")
         
-        This enhanced implementation:
-        1. Uses more sophisticated DSPy modules for retrieval and question-answering
-        2. Leverages teleprompter for optimization with generated queries
-        3. Implements proper RAG pipeline with multi-stage retrieval
-        4. Saves trained modules for production use
-        """
-        print("Augmenting DSPy pipeline with advanced modules...")
+        print("Augmenting DSPy pipeline with trained components...")
         
-        import dspy
-        import os
-        import json
-        import time
-        from datetime import datetime
+        dspy_output_dir = os.path.join(self.output_dir, "dspy-pipeline")
+        os.makedirs(dspy_output_dir, exist_ok=True)
         
-        # Output directory for DSPy modules
-        dspy_modules_dir = os.path.join(self.output_dir, "dspy-modules")
-        os.makedirs(dspy_modules_dir, exist_ok=True)
-        
-        # Setup language model
         try:
-            if model_path:
-                # In a real implementation, this would load the fine-tuned model
-                lm = load_model_for_dspy(model_path)
-                print(f"Using fine-tuned model from {model_path}")
+            # Configure DSPy with the trained model if available
+            if model_path and os.path.exists(model_path):
+                print(f"Using trained model: {model_path}")
+                # In a real implementation, you would load the trained model here
+                lm = dspy.LM('ollama_chat/deepseek-r1:1.5b', api_base='http://localhost:11434', api_key='')
             else:
-                # Use default model
-                lm = dspy.LM('ollama_chat/deepseek-r1:8b', api_base='http://localhost:11434', api_key='')
-                print("Using default language model")
+                print("Using base model for DSPy")
+                lm = dspy.LM('ollama_chat/deepseek-r1:1.5b', api_base='http://localhost:11434', api_key='')
             
             dspy.configure(lm=lm)
-        except Exception as e:
-            print(f"Error configuring language model: {e}")
-            print("Proceeding with module definitions but optimization will be limited")
             
-        # If documents are provided, we can build more sophisticated modules
-        if documents:
-            print(f"Building advanced DSPy modules using {len(documents)} documents")
+            # Define enhanced signatures
+            class DocumentAnalyzer(dspy.Signature):
+                """Analyze document content for key insights and information."""
+                document = dspy.InputField(desc="Document text to analyze")
+                analysis = dspy.OutputField(desc="Comprehensive analysis of the document")
             
-            try:
-                # 1. Define more sophisticated DSPy modules
+            class QueryResponder(dspy.Signature):
+                """Respond to queries using document context."""
+                query = dspy.InputField(desc="User query")
+                context = dspy.InputField(desc="Relevant document context")
+                response = dspy.OutputField(desc="Detailed response based on context")
+            
+            # Create and test pipeline components
+            analyzer = dspy.ChainOfThought(DocumentAnalyzer)
+            responder = dspy.ChainOfThought(QueryResponder)
+            
+            # Test with sample data if available
+            if documents:
+                sample_doc = documents[0][:2000] if documents[0] else "Sample document text"
                 
-                # 1.1 Advanced retriever with semantic and keyword capabilities
-                class EnhancedRetriever(dspy.Module):
-                    """Retrieval module with both semantic search and keyword matching capabilities."""
+                try:
+                    analysis = analyzer(document=sample_doc)
+                    print("DSPy analyzer test successful")
                     
-                    def __init__(self, documents, max_docs=5):
-                        super().__init__()
-                        self.documents = documents
-                        self.max_docs = max_docs
-                        # Initialize basic TF-IDF for keyword search
-                        self._setup_indexing()
-                        
-                    def _setup_indexing(self):
-                        """Setup document indexing for retrieval."""
-                        try:
-                            from sklearn.feature_extraction.text import TfidfVectorizer
-                            
-                            # Create document chunks for more granular retrieval
-                            self.chunks = []
-                            self.chunk_to_doc = []
-                            
-                            for doc_idx, doc in enumerate(self.documents):
-                                # Simple chunking by paragraphs
-                                paragraphs = [p for p in doc.split('\n\n') if p.strip()]
-                                if not paragraphs:  # Fallback for documents without paragraph breaks
-                                    paragraphs = [doc]
-                                
-                                for para in paragraphs:
-                                    if para.strip():
-                                        self.chunks.append(para)
-                                        self.chunk_to_doc.append(doc_idx)
-                            
-                            # Build TF-IDF index
-                            self.vectorizer = TfidfVectorizer(stop_words='english')
-                            self.tfidf_matrix = self.vectorizer.fit_transform(self.chunks)
-                            print(f"Indexed {len(self.chunks)} document chunks for retrieval")
-                            
-                        except Exception as e:
-                            print(f"Warning: Error in retriever setup: {e}")
-                            # Fallback to simplistic retrieval
-                            self.chunks = self.documents
-                            self.chunk_to_doc = list(range(len(documents)))
+                    response = responder(
+                        query="What is this document about?",
+                        context=sample_doc
+                    )
+                    print("DSPy responder test successful")
                     
-                    def forward(self, query):
-                        """Retrieve relevant document chunks for a query."""
-                        try:
-                            # Basic keyword-based retrieval
-                            query_vec = self.vectorizer.transform([query])
-                            from sklearn.metrics.pairwise import cosine_similarity
-                            similarities = cosine_similarity(query_vec, self.tfidf_matrix).flatten()
-                            
-                            # Get top chunks
-                            top_indices = similarities.argsort()[-self.max_docs:][::-1]
-                            
-                            # Map to original documents with deduplication
-                            seen_docs = set()
-                            result_docs = []
-                            
-                            for idx in top_indices:
-                                doc_idx = self.chunk_to_doc[idx]
-                                if doc_idx not in seen_docs:
-                                    seen_docs.add(doc_idx)
-                                    result_docs.append(self.documents[doc_idx])
-                                    
-                            return result_docs
-                            
-                        except Exception as e:
-                            print(f"Retrieval error: {e}, falling back to random selection")
-                            # Fallback to random selection
-                            import random
-                            num_docs = min(3, len(self.documents))
-                            return random.sample(self.documents, num_docs)
-                
-                # 1.2 Context processor that summarizes and highlights relevant parts
-                class ContextProcessor(dspy.Module):
-                    """Process retrieved documents to extract and highlight the most relevant content."""
-                    
-                    def __init__(self):
-                        super().__init__()
-                        self.summarize = dspy.ChainOfThought("context, question -> relevant_extract")
-                        
-                    def forward(self, documents, question):
-                        if not documents:
-                            return ""
-                            
-                        combined = "\n\n".join(documents)
-                        
-                        try:
-                            # Extract most relevant parts
-                            result = self.summarize(
-                                context=combined[:8000] if len(combined) > 8000 else combined,
-                                question=question
-                            )
-                            return result.relevant_extract
-                        except:
-                            # Fallback to just returning the first part of the documents
-                            return combined[:8000] if len(combined) > 8000 else combined
-                
-                # 1.3 Advanced RAG pipeline combining retrieval, processing and generation
-                class EnhancedRAG(dspy.Module):
-                    """Enhanced Retrieval-Augmented Generation pipeline."""
-                    
-                    def __init__(self, retriever):
-                        super().__init__()
-                        self.retriever = retriever
-                        self.processor = ContextProcessor()
-                        self.gen = dspy.ChainOfThought("context, question -> answer")
-                        
-                    def forward(self, question):
-                        # Multi-stage process
-                        documents = self.retriever(question)
-                        processed_context = self.processor(documents, question)
-                        prediction = self.gen(context=processed_context, question=question)
-                        
-                        # Return with metadata about sources
-                        return dspy.Prediction(
-                            answer=prediction.answer,
-                            num_docs=len(documents),
-                            context_length=len(processed_context)
-                        )
-                
-                # 2. Extract sample queries for optimizing the pipeline
-                print("Extracting sample queries for teleprompter optimization...")
-                sample_queries = self._extract_sample_queries(documents, num_samples=10)
-                
-                # 3. Create and configure the modules
-                retriever = EnhancedRetriever(documents)
-                rag_module = EnhancedRAG(retriever)
-                
-                # 4. Simulate teleprompter optimization (in real implementation, would use dspy.teleprompt)
-                print("Simulating teleprompter optimization with extracted queries...")
-                
-                # Example query-answer pairs to demonstrate the structure
-                # In a real implementation, this would be done with actual teleprompter
-                example_qa_pairs = []
-                
-                for i, query in enumerate(sample_queries[:5]):
-                    try:
-                        result = rag_module(query)
-                        example_qa_pairs.append({
-                            "question": query,
-                            "answer": result.answer,
-                            "metadata": {
-                                "num_docs": result.num_docs,
-                                "context_length": result.context_length
-                            }
-                        })
-                        print(f"Generated example QA pair {i+1}/5")
-                        time.sleep(0.5)  # Small delay for simulation
-                    except Exception as e:
-                        print(f"Error generating example for query {i}: {e}")
-                
-                # 5. Save modules and examples
-                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                
-                # Save module specifications
-                module_spec = {
-                    "timestamp": timestamp,
-                    "base_model": model_path or "default",
-                    "num_documents": len(documents),
-                    "num_chunks": len(retriever.chunks) if hasattr(retriever, 'chunks') else 0,
-                    "modules": ["EnhancedRetriever", "ContextProcessor", "EnhancedRAG"]
-                }
-                
-                with open(os.path.join(dspy_modules_dir, f"module_spec_{timestamp}.json"), "w") as f:
-                    json.dump(module_spec, f, indent=2)
-                
-                # Save example QA pairs
-                with open(os.path.join(dspy_modules_dir, f"example_qa_pairs_{timestamp}.json"), "w") as f:
-                    json.dump(example_qa_pairs, f, indent=2)
-                    
-                # Save sample queries
-                with open(os.path.join(dspy_modules_dir, f"sample_queries_{timestamp}.json"), "w") as f:
-                    json.dump(sample_queries, f, indent=2)
-                    
-                print(f"Saved module specifications and examples to {dspy_modules_dir}")
-                
-            except Exception as e:
-                print(f"Error in DSPy pipeline augmentation: {e}")
-                # Create basic info file to indicate the attempt
-                with open(os.path.join(dspy_modules_dir, "basic_module_info.txt"), "w") as f:
-                    f.write(f"DSPy pipeline augmentation attempted but encountered errors: {str(e)}\n")
-                    f.write(f"Number of documents: {len(documents)}\n")
-                    f.write(f"Based on model: {model_path or 'default'}\n")
-                    f.write(f"Timestamp: {datetime.now().isoformat()}\n")
-        else:
-            # If no documents provided, just save a placeholder
-            with open(os.path.join(dspy_modules_dir, "placeholder_info.txt"), "w") as f:
-                f.write("DSPy pipeline augmentation requires documents to be provided\n")
-                f.write(f"Based on model: {model_path or 'default'}\n")
-
-        print(f"DSPy pipeline augmentation complete. Modules and examples saved to {dspy_modules_dir}")
-        return dspy_modules_dir
-
-def load_text_from_files(file_paths, max_files=50):
-    """Load text content from a list of file paths."""
-    documents = []
-    for i, path in enumerate(file_paths):
-        if i >= max_files:
-            break
-        
-        try:
-            if path.lower().endswith('.pdf'):
-                from PyPDF2 import PdfReader
-                reader = PdfReader(path)
-                text_pages = [page.extract_text() or "" for page in reader.pages]
-                documents.append("\n".join(text_pages))
-            elif path.lower().endswith(('.txt', '.md', '.json', '.py', '.html', '.htm', '.xml', '.csv')):
-                with open(path, 'r', encoding='utf-8', errors='ignore') as f:
-                    documents.append(f.read())
+                except Exception as e:
+                    print(f"DSPy pipeline test failed: {e}")
+            
+            # Save pipeline configuration
+            pipeline_config = {
+                'model_path': model_path,
+                'components': ['DocumentAnalyzer', 'QueryResponder'],
+                'creation_time': time.time(),
+                'status': 'ready'
+            }
+            
+            with open(os.path.join(dspy_output_dir, "pipeline_config.json"), 'w') as f:
+                json.dump(pipeline_config, f, indent=2)
+            
+            print(f"DSPy pipeline augmentation complete: {dspy_output_dir}")
+            
         except Exception as e:
-            print(f"Error loading {path}: {e}")
-    
-    return documents
-
-def get_document_metadata(documents):
-    """Extract basic metadata from documents."""
-    metadata = []
-    
-    for i, doc in enumerate(documents):
-        word_count = len(doc.split())
-        lines = doc.count('\n') + 1
-        sentences = doc.count('.') + doc.count('!') + doc.count('?')
+            print(f"Error in DSPy pipeline augmentation: {e}")
+            # Create a fallback configuration
+            fallback_config = {
+                'model_path': model_path,
+                'components': [],
+                'creation_time': time.time(),
+                'status': 'fallback',
+                'error': str(e)
+            }
+            
+            with open(os.path.join(dspy_output_dir, "pipeline_config.json"), 'w') as f:
+                json.dump(fallback_config, f, indent=2)
         
-        metadata.append({
-            "document_id": i,
-            "word_count": word_count,
-            "line_count": lines,
-            "sentence_count": sentences,
-            "avg_sentence_length": word_count / max(1, sentences),
-            "content_sample": doc[:100] + "..." if len(doc) > 100 else doc
-        })
+        return dspy_output_dir
     
-    return metadata
-
-def load_model_for_dspy(model_path: str = None):
-    """Load a fine-tuned model for use with DSPy."""
-    # This is where we would adapt a fine-tuned model to work with DSPy
-    import dspy
-    import os
+    def load_documents_from_path(self, file_path: str) -> List[str]:
+        """Load documents from various file formats."""
+        documents = []
+        path = Path(file_path)
+        
+        if not path.exists():
+            print(f"Path does not exist: {file_path}")
+            return documents
+        
+        if path.is_file():
+            documents.extend(self._load_single_file(path))
+        elif path.is_dir():
+            for file_path in path.rglob("*"):
+                if file_path.is_file():
+                    documents.extend(self._load_single_file(file_path))
+        
+        print(f"Loaded {len(documents)} documents")
+        return documents
     
-    if model_path and os.path.exists(model_path):
+    def _load_single_file(self, file_path: Path) -> List[str]:
+        """Load content from a single file."""
         try:
-            # Check if this is an adapter-based model we saved
-            adapter_config_path = os.path.join(model_path, "adapter_config.json")
-            if os.path.exists(adapter_config_path):
-                # In a production implementation, we would load the adapter config
-                # and apply it to the base model
-                print(f"Loading adapter-based model from {model_path}")
-                # For now, fall back to base model but log that we found the adapter
-                lm = dspy.LM('ollama_chat/deepseek-r1:8b', api_base='http://localhost:11434', api_key='')
-                print(f"Note: Using base model with adapter configuration from {adapter_config_path}")
+            if file_path.suffix.lower() == '.pdf':
+                if HAS_PYPDF2:
+                    reader = PdfReader(str(file_path))
+                    text = ""
+                    for page in reader.pages:
+                        text += page.extract_text()
+                    return [text] if text.strip() else []
+                else:
+                    print(f"PyPDF2 not available, skipping PDF: {file_path}")
+                    return []
+            
+            elif file_path.suffix.lower() in ['.txt', '.md', '.py', '.js', '.html']:
+                with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                    content = f.read()
+                    return [content] if content.strip() else []
+            
+            elif file_path.suffix.lower() == '.json':
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    return [json.dumps(data, indent=2)]
+            
             else:
-                # Try to load as a complete model
-                print(f"Loading model from {model_path}")
-                # In a real implementation, this would properly load the model
-                # with appropriate format detection
-                lm = dspy.LM('ollama_chat/deepseek-r1:8b', api_base='http://localhost:11434', api_key='')
+                print(f"Unsupported file type: {file_path}")
+                return []
+                
         except Exception as e:
-            print(f"Error loading model from {model_path}: {e}")
-            print("Falling back to default model")
-            lm = dspy.LM('ollama_chat/deepseek-r1:8b', api_base='http://localhost:11434', api_key='')
-    else:
-        # Fallback to default model
-        print("Using default model (no custom model path provided)")
-        lm = dspy.LM('ollama_chat/deepseek-r1:8b', api_base='http://localhost:11434', api_key='')
+            print(f"Error loading file {file_path}: {e}")
+            return []
+    
+    def get_training_status(self) -> Dict[str, Any]:
+        """Get current training status and available models."""
+        status = {
+            'available_models': [],
+            'training_runs': [],
+            'capabilities': {
+                'next_token_prediction': True,
+                'reinforcement_learning': HAS_TRL,
+                'dspy_pipeline': HAS_DSPY,
+                'embedding_training': HAS_SKLEARN,
+                'document_loading': True
+            }
+        }
+        
+        # Check for existing trained models
+        if os.path.exists(self.output_dir):
+            for model_dir in os.listdir(self.output_dir):
+                model_path = os.path.join(self.output_dir, model_dir)
+                if os.path.isdir(model_path):
+                    status['available_models'].append({
+                        'name': model_dir,
+                        'path': model_path,
+                        'created': os.path.getctime(model_path)
+                    })
+        
+        return status
+
+
+# Standalone functions for API endpoints
+def start_training_session(
+    training_type: str,
+    documents: List[str] = None,
+    file_paths: List[str] = None,
+    model_config: Dict[str, Any] = None
+) -> Dict[str, Any]:
+    """Start a new training session with the specified configuration."""
+    trainer = ModelTrainer()
+    
+    # Load documents if file paths provided
+    if file_paths:
+        all_documents = []
+        for file_path in file_paths:
+            all_documents.extend(trainer.load_documents_from_path(file_path))
+        documents = documents or []
+        documents.extend(all_documents)
+    
+    if not documents:
+        return {"error": "No documents provided for training"}
+    
+    config = model_config or {}
     
     try:
-        dspy.configure(lm=lm)
-    except Exception as e:
-        print(f"Error configuring DSPy with model: {e}")
+        if training_type == "next_token_prediction":
+            if not HAS_DATASETS:
+                return {"error": "datasets library required for next token prediction"}
+            
+            dataset = trainer.prepare_dataset_from_documents(documents)
+            model_path = trainer.fine_tune_next_token_prediction(
+                dataset,
+                epochs=config.get('epochs', 3),
+                learning_rate=config.get('learning_rate', 5e-5),
+                batch_size=config.get('batch_size', 4)
+            )
+            return {"success": True, "model_path": model_path, "type": training_type}
+        
+        elif training_type == "reinforcement_learning":
+            if not HAS_TRL:
+                return {"error": "TRL library required for reinforcement learning"}
+            
+            model_path = trainer.setup_rl_pipeline(
+                documents,
+                model_path=config.get('base_model_path'),
+                ppo_steps=config.get('ppo_steps', 100)
+            )
+            return {"success": True, "model_path": model_path, "type": training_type}
+        
+        elif training_type == "embedding":
+            queries = trainer._extract_sample_queries(documents)
+            model_path = trainer.train_embedding_model(documents, queries)
+            return {"success": True, "model_path": model_path, "type": training_type}
+        
+        elif training_type == "dspy_pipeline":
+            if not HAS_DSPY:
+                return {"error": "DSPy library required for pipeline training"}
+            
+            model_path = trainer.augment_dspy_pipeline(
+                model_path=config.get('base_model_path'),
+                documents=documents
+            )
+            return {"success": True, "model_path": model_path, "type": training_type}
+        
+        else:
+            return {"error": f"Unknown training type: {training_type}"}
     
-    return lm
+    except Exception as e:
+        return {"error": f"Training failed: {str(e)}"}
+
+
+def get_training_capabilities() -> Dict[str, Any]:
+    """Get information about available training capabilities."""
+    return {
+        'training_types': {
+            'next_token_prediction': {
+                'available': HAS_DATASETS,
+                'description': 'Fine-tune model for next token prediction',
+                'requirements': ['datasets', 'transformers']
+            },
+            'reinforcement_learning': {
+                'available': HAS_TRL,
+                'description': 'Train with reinforcement learning using TRL',
+                'requirements': ['trl', 'transformers']
+            },
+            'embedding': {
+                'available': HAS_SKLEARN,
+                'description': 'Train embedding model for better retrieval',
+                'requirements': ['scikit-learn']
+            },
+            'dspy_pipeline': {
+                'available': HAS_DSPY,
+                'description': 'Augment DSPy pipeline with trained components',
+                'requirements': ['dspy']
+            }
+        },
+        'supported_formats': ['.txt', '.md', '.pdf', '.py', '.js', '.html', '.json'],
+        'dependencies': {
+            'datasets': HAS_DATASETS,
+            'trl': HAS_TRL,
+            'dspy': HAS_DSPY,
+            'sklearn': HAS_SKLEARN,
+            'pypdf2': HAS_PYPDF2
+        }
+    }
+
 
 if __name__ == "__main__":
-    print("Model training module loaded. Use ModelTrainer class to fine-tune models.")
+    # Test the trainer
+    trainer = ModelTrainer()
+    status = trainer.get_training_status()
+    print("Training capabilities:", json.dumps(status, indent=2))

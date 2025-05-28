@@ -1,5 +1,5 @@
 import dspy
-lm = dspy.LM('ollama_chat/deepseek-r1:8b', api_base='http://localhost:11434', api_key='')
+lm = dspy.LM('ollama_chat/deepseek-r1:1.5b', api_base='http://localhost:11434', api_key='')
 dspy.configure(lm=lm)
 
 cot = dspy.ChainOfThought('question -> response')

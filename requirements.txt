@@ -1,0 +1,29 @@
+# Core dependencies for PDF QA Chatbot with CUDA support
+
+# FastAPI and server dependencies
+fastapi>=0.104.1
+uvicorn[standard]>=0.24.0
+python-multipart>=0.0.6
+
+# Machine Learning and AI
+torch>=2.1.0+cu121 --index-url https://download.pytorch.org/whl/cu121
+transformers>=4.36.0
+datasets>=2.14.0
+accelerate>=0.24.0
+trl>=0.7.4
+bitsandbytes>=0.41.0
+
+# Document processing and embedding
+PyPDF2>=3.0.1
+pylate>=0.3.0
+
+# DSPy for chain-of-thought
+dspy-ai>=2.4.9
+
+# Scientific computing
+numpy>=1.24.0
+scipy>=1.11.0
+
+# Utilities
+python-dotenv>=1.0.0
+tqdm>=4.66.0

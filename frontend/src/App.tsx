@@ -7,6 +7,9 @@ import NewConversationButton from './NewConversationButton';
 import ConversationList from './ConversationList';
 import UploadModal from './UploadModal';
 import ModelTrainingStatus from './ModelTrainingStatus';
+import TrainingModal from './TrainingModal';
+import DataExtractionModal from './DataExtractionModal';
+import DSPyFunctionCreator from './DSPyFunctionCreator';
 
 type Message = { role: 'user' | 'bot'; content: string };
 type Conversation = { id: string; messages: Message[] };
@@ -24,6 +27,9 @@ function App() {
   const [uploadProgress, setUploadProgress] = useState(0);
   const [trainingStarted, setTrainingStarted] = useState(false);
   const [trainingModalOpen, setTrainingModalOpen] = useState(false);
+  const [advancedTrainingModalOpen, setAdvancedTrainingModalOpen] = useState(false);
+  const [dataExtractionModalOpen, setDataExtractionModalOpen] = useState(false);
+  const [dspyFunctionCreatorOpen, setDspyFunctionCreatorOpen] = useState(false);
   
   useEffect(() => { newConversation(); }, []);
   
@@ -112,6 +118,49 @@ function App() {
     setTrainingModalOpen(false);
   };
 
+  const handleOpenAdvancedTraining = () => {
+    setAdvancedTrainingModalOpen(true);
+  };
+
+  const handleCloseAdvancedTraining = () => {
+    setAdvancedTrainingModalOpen(false);
+  };
+
+  const handleOpenDataExtraction = () => {
+    setDataExtractionModalOpen(true);
+  };
+
+  const handleCloseDataExtraction = () => {
+    setDataExtractionModalOpen(false);
+  };
+
+  const handleOpenDSPyCreator = () => {
+    setDspyFunctionCreatorOpen(true);
+  };
+
+  const handleCloseDSPyCreator = () => {
+    setDspyFunctionCreatorOpen(false);
+  };
+
+  const handleSaveDSPyFunction = async (func: any) => {
+    try {
+      const response = await fetch('/api/dspy/functions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(func),
+      });
+      
+      if (response.ok) {
+        console.log('DSPy function saved successfully');
+        setDspyFunctionCreatorOpen(false);
+      } else {
+        console.error('Failed to save DSPy function');
+      }
+    } catch (error) {
+      console.error('Error saving DSPy function:', error);
+    }
+  };
+
   const handleSend = async (text: string) => {
     setConversations(prev => prev.map(c => c.id === currentConvId ? { ...c, messages: [...c.messages, { role: 'user', content: text }] } : c));
     try {
@@ -144,6 +193,20 @@ function App() {
         <NewConversationButton onNew={newConversation} />
         <ConversationList conversations={conversations} currentId={currentConvId} onSelect={selectConversation} />
         <FileUploader onUpload={handleUpload} />
+        
+        {/* AI Agent Control Panel */}
+        <div className="agent-controls">
+          <h3>AI Agent Controls</h3>
+          <button className="control-button" onClick={handleOpenAdvancedTraining}>
+            🎯 Advanced Training
+          </button>
+          <button className="control-button" onClick={handleOpenDataExtraction}>
+            📊 Data Extraction
+          </button>
+          <button className="control-button" onClick={handleOpenDSPyCreator}>
+            🛠️ DSPy Function Creator
+          </button>
+        </div>
       </aside>
       <main className="chat-container">
         <ChatWindow messages={currentMessages} />
@@ -164,6 +227,25 @@ function App() {
       <ModelTrainingStatus 
         isOpen={trainingModalOpen}
         onClose={handleCloseTrainingModal}
+      />
+      
+      {/* Advanced Training Modal */}
+      <TrainingModal
+        isOpen={advancedTrainingModalOpen}
+        onClose={handleCloseAdvancedTraining}
+      />
+      
+      {/* Data Extraction Modal */}
+      <DataExtractionModal
+        isOpen={dataExtractionModalOpen}
+        onClose={handleCloseDataExtraction}
+      />
+      
+      {/* DSPy Function Creator Modal */}
+      <DSPyFunctionCreator
+        isOpen={dspyFunctionCreatorOpen}
+        onClose={handleCloseDSPyCreator}
+        onSave={handleSaveDSPyFunction}
       />
     </div>
   );
