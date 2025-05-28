@@ -9,15 +9,27 @@ This project lets you interactively query a collection of PDFs with advanced mod
 - **Multi-stage Query Generation**: Sophisticated query extraction for better understanding
 
 
+## Key Features
+
+- **Conversational Interface**: Manage multiple conversations with your documents
+- **Document Processing**: Upload PDF files with real-time progress tracking
+- **Advanced Retrieval**: Semantic search powered by ColBERT embeddings
+- **Model Training**: Automatic fine-tuning with sophisticated techniques:
+  - Multi-stage query generation with factual, analytical, and comparative questions
+  - Hierarchical document clustering for comprehensive coverage
+  - Entity and concept extraction for domain-specific questions
+  - Embedding model training with hard negative mining
+  - DSPy pipeline optimization with teleprompter
+
 ## Prerequisites
 
 - Python 3.8+
 - Windows OS
+- Node.js 16+ and npm
 - An Ollama-compatible LLM server running (e.g., via `ollama serve`)
-- PDFs
+- PDFs for document QA
 
-
-## Setup
+## Backend Setup
 
 1. Clone or download this repository:
    ```powershell
@@ -28,29 +40,43 @@ This project lets you interactively query a collection of PDFs with advanced mod
    python -m venv venv
    .\venv\Scripts\Activate
    ```
-3. Install dependencies:
+3. Install backend dependencies:
    ```powershell
    pip install -r requirements.txt
    ```
-   *(Requirements include `pylate`, `PyPDF2`, `dspy`, and their dependencies.)*
+   *(Requirements include `fastapi`, `pylate`, `PyPDF2`, `dspy`, `scikit-learn` and their dependencies.)*
+4. Start the FastAPI server:
+   ```powershell
+   uvicorn server:app --host 127.0.0.1 --port 5000 --reload
+   ```
 
+## Frontend Setup
 
-## One-time Indexing
+1. Navigate to the frontend directory:
+   ```powershell
+   cd frontend
+   ```
+2. Install frontend dependencies:
+   ```powershell
+   npm install
+   ```
+3. Start the development server:
+   ```powershell
+   npm run dev
+   ```
+4. Open your browser at http://127.0.0.1:3000
 
-On the first run, the script will build a **Voyager** index under `pylate-index/`. This may take a minute:
+## Document Processing
 
-```powershell
-python model.py
-```
+The system automatically builds and maintains an embedding index for your documents:
 
-You should see progress bars for:
-- Encoding documents (batch size 32)
-- Adding document embeddings to the index
+1. Upload PDF files through the web interface
+2. Watch real-time progress of document processing
+3. After upload completes, model training starts automatically in the background
+4. Track training progress through the training status modal
+5. Once training completes, the system will use optimized models for retrieval and question answering
 
-Once complete, the index folder will contain `index.voyager` and supporting SQLite files.
-
-
-## Interactive QA
+## Advanced Usage
 
 After indexing, re-running the script skips re-indexing and drops you into an interactive prompt:
 
