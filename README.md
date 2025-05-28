@@ -1,9 +1,12 @@
-# PDF QA Chatbot
+# PDF QA Chatbot with Advanced Training
 
-This project lets you interactively query a collection of pdfs using: 
+This project lets you interactively query a collection of PDFs with advanced model training and optimization features:
 
-- **pylate/Reasoning ModernColBERT** for document embedding and retrieval
-- **dspy/deepseek-r1:8b** for LLM-powered Chain-of-Thought prompting
+- **Modern React/TypeScript Frontend**: Sleek, responsive UI with conversation management
+- **pylate/Reasoning ModernColBERT**: Advanced document embedding and retrieval
+- **dspy/deepseek-r1:8b**: LLM-powered Chain-of-Thought prompting
+- **Adaptive Model Training**: Automatic fine-tuning of models on your documents
+- **Multi-stage Query Generation**: Sophisticated query extraction for better understanding
 
 
 ## Prerequisites

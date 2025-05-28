@@ -6,6 +6,7 @@ import FileUploader from './FileUploader';
 import NewConversationButton from './NewConversationButton';
 import ConversationList from './ConversationList';
 import UploadModal from './UploadModal';
+import ModelTrainingStatus from './ModelTrainingStatus';
 
 type Message = { role: 'user' | 'bot'; content: string };
 type Conversation = { id: string; messages: Message[] };
@@ -21,6 +22,8 @@ function App() {
   const [modalOpen, setModalOpen] = useState(false);
   const [uploadStage, setUploadStage] = useState<'uploading' | 'indexing' | 'complete' | 'error'>('uploading');
   const [uploadProgress, setUploadProgress] = useState(0);
+  const [trainingStarted, setTrainingStarted] = useState(false);
+  const [trainingModalOpen, setTrainingModalOpen] = useState(false);
   
   useEffect(() => { newConversation(); }, []);
   
@@ -44,6 +47,7 @@ function App() {
       setModalOpen(true);
       setUploadStage('uploading');
       setUploadProgress(0);
+      setTrainingStarted(false);
       
       // Add each file to the form data
       Array.from(files).forEach(file => {
@@ -53,7 +57,7 @@ function App() {
       });
       
       // Start the actual upload
-      const uploadResponse = await fetch('/upload', { 
+      const uploadResponse = await fetch('/api/upload', { 
         method: 'POST', 
         body: form 
       });
@@ -78,7 +82,12 @@ function App() {
         }
       }, 500);
       
-      await uploadResponse.json();
+      const responseData = await uploadResponse.json();
+      
+      // Check if training was started
+      if (responseData.training_started) {
+        setTrainingStarted(true);
+      }
       
     } catch (error) {
       console.error('Upload error:', error);
@@ -93,14 +102,23 @@ function App() {
       setUploadProgress(0);
     }
   };
+  
+  const handleViewTraining = () => {
+    setModalOpen(false);
+    setTrainingModalOpen(true);
+  };
+  
+  const handleCloseTrainingModal = () => {
+    setTrainingModalOpen(false);
+  };
 
   const handleSend = async (text: string) => {
     setConversations(prev => prev.map(c => c.id === currentConvId ? { ...c, messages: [...c.messages, { role: 'user', content: text }] } : c));
     try {
-      const resp = await fetch('/chat', {
+      const resp = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ question: text }),
+        body: JSON.stringify({ question: text, conversation_id: currentConvId }),
       });
       
       if (!resp.ok) {
@@ -138,6 +156,14 @@ function App() {
         stage={uploadStage}
         progress={uploadProgress}
         onClose={closeModal}
+        onViewTraining={handleViewTraining}
+        trainingStarted={trainingStarted}
+      />
+      
+      {/* Model training status modal */}
+      <ModelTrainingStatus 
+        isOpen={trainingModalOpen}
+        onClose={handleCloseTrainingModal}
       />
     </div>
   );

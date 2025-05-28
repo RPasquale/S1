@@ -6,6 +6,8 @@ interface Props {
   progress?: number;
   message?: string;
   onClose: () => void;
+  onViewTraining?: () => void;
+  trainingStarted?: boolean;
 }
 
 const UploadModal: React.FC<Props> = ({ 
@@ -13,7 +15,9 @@ const UploadModal: React.FC<Props> = ({
   stage, 
   progress = 0, 
   message = '', 
-  onClose 
+  onClose,
+  onViewTraining,
+  trainingStarted = false
 }) => {
   if (!isOpen) return null;
   
@@ -36,12 +40,13 @@ const UploadModal: React.FC<Props> = ({
     switch (stage) {
       case 'uploading': return 'Uploading your PDFs to the server...';
       case 'indexing': return 'Creating searchable index from documents...';
-      case 'complete': return 'Your documents have been successfully uploaded and indexed.';
+      case 'complete': return trainingStarted 
+        ? 'Your documents have been successfully uploaded and indexed. Model training has started in the background.'
+        : 'Your documents have been successfully uploaded and indexed.';
       case 'error': return 'There was an error processing your upload.';
       default: return '';
     }
   };
-
   const displayMessage = message || getDefaultMessage();
   
   return (
@@ -69,15 +74,27 @@ const UploadModal: React.FC<Props> = ({
         
         <p>{displayMessage}</p>
         
-        {/* Only show close button when we can close */}
-        {canClose && (
-          <button 
-            className="modal-button" 
-            onClick={onClose}
-          >
-            Close
-          </button>
-        )}
+        <div className="modal-actions">
+          {/* Show training status button if training was started */}
+          {canClose && stage === 'complete' && trainingStarted && onViewTraining && (
+            <button 
+              className="secondary-button" 
+              onClick={onViewTraining}
+            >
+              View Model Training
+            </button>
+          )}
+          
+          {/* Only show close button when we can close */}
+          {canClose && (
+            <button 
+              className={trainingStarted && onViewTraining ? "primary-button" : "modal-button"}
+              onClick={onClose}
+            >
+              Close
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );

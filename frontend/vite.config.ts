@@ -6,16 +6,14 @@ export default defineConfig({
   plugins: [react()],
   server: {
     proxy: {
-      '/chat': {
+      '/api': {
         target: 'http://127.0.0.1:5000',
         changeOrigin: true,
         secure: false,
-      },
-      '/upload': {
-        target: 'http://127.0.0.1:5000',
-        changeOrigin: true,
-        secure: false,
+        rewrite: (path) => path.replace(/^\/api/, '')
       }
-    }
+    },
+    host: '127.0.0.1', // Explicitly bind to localhost
+    port: 3000
   }
 })
