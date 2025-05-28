@@ -35,9 +35,13 @@ function App() {
   
   const selectConversation = (id: string) => setCurrentConvId(id);
   const activeConversation = conversations.find(c => c.id === currentConvId);
-  const currentMessages = activeConversation?.messages ?? [];
-
-  const handleUpload = async (files: FileList) => {
+  const currentMessages = activeConversation?.messages ?? [];  const handleUpload = async (files: FileList) => {
+    console.log('handleUpload called with files:', files);
+    console.log('Number of files:', files.length);
+    console.log('File names:', Array.from(files).map(f => f.name));
+    
+    let progressInterval: number | null = null;
+    
     try {
       const form = new FormData();
       const totalFiles = files.length;
@@ -56,42 +60,66 @@ function App() {
         setUploadProgress(Math.round((uploadedCount / totalFiles) * 50)); // First 50% for upload
       });
       
-      // Start the actual upload
-      const uploadResponse = await fetch('/api/upload', { 
-        method: 'POST', 
-        body: form 
-      });
+      // Create an AbortController for request timeout
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 300000); // 5 minute timeout
       
-      if (!uploadResponse.ok) {
-        throw new Error('Upload failed');
-      }
-      
-      // Switch to indexing state
-      setUploadStage('indexing');
-      
-      // Simulate progress for indexing (since the server doesn't report progress)
-      let indexProgress = 0;
-      const progressInterval = setInterval(() => {
-        indexProgress += 5;
-        setUploadProgress(50 + Math.min(indexProgress, 50)); // Second 50% for indexing
+      try {
+        // Start the actual upload
+        const uploadResponse = await fetch('/api/upload', { 
+          method: 'POST', 
+          body: form,
+          signal: controller.signal
+        });
         
-        if (indexProgress >= 50) {
-          clearInterval(progressInterval);
-          setUploadStage('complete');
-          setUploadProgress(100);
+        clearTimeout(timeoutId);
+        
+        if (!uploadResponse.ok) {
+          throw new Error(`Upload failed with status: ${uploadResponse.status}`);
         }
-      }, 500);
-      
-      const responseData = await uploadResponse.json();
-      
-      // Check if training was started
-      if (responseData.training_started) {
-        setTrainingStarted(true);
+        
+        // Switch to indexing state
+        setUploadStage('indexing');
+        
+        // Simulate progress for indexing (since the server doesn't report progress)
+        let indexProgress = 0;
+        progressInterval = window.setInterval(() => {
+          indexProgress += 5;
+          setUploadProgress(50 + Math.min(indexProgress, 50)); // Second 50% for indexing
+          
+          if (indexProgress >= 50) {
+            if (progressInterval !== null) {
+              clearInterval(progressInterval);
+              progressInterval = null;
+            }
+            setUploadStage('complete');
+            setUploadProgress(100);
+          }
+        }, 500);
+        
+        const responseData = await uploadResponse.json();
+        
+        // Check if training was started
+        if (responseData.training_started) {
+          setTrainingStarted(true);
+        }
+        
+      } catch (fetchError) {
+        clearTimeout(timeoutId);
+        if (fetchError instanceof Error && fetchError.name === 'AbortError') {
+          throw new Error('Upload timeout - please try again with smaller files');
+        }
+        throw fetchError;
       }
       
     } catch (error) {
       console.error('Upload error:', error);
       setUploadStage('error');
+      
+      // Clean up progress interval if it exists
+      if (progressInterval !== null) {
+        clearInterval(progressInterval);
+      }
     }
   };
   
@@ -111,28 +139,46 @@ function App() {
   const handleCloseTrainingModal = () => {
     setTrainingModalOpen(false);
   };
-
   const handleSend = async (text: string) => {
     setConversations(prev => prev.map(c => c.id === currentConvId ? { ...c, messages: [...c.messages, { role: 'user', content: text }] } : c));
+    
+    // Create an AbortController for request timeout
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 120000); // 2 minute timeout for chat
+    
     try {
       const resp = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ question: text, conversation_id: currentConvId }),
+        signal: controller.signal
       });
       
+      clearTimeout(timeoutId);
+      
       if (!resp.ok) {
-        throw new Error('Failed to get answer');
+        throw new Error(`Failed to get answer: ${resp.status} ${resp.statusText}`);
       }
       
       const { answer } = await resp.json();
       setConversations(prev => prev.map(c => c.id === currentConvId ? { ...c, messages: [...c.messages, { role: 'bot', content: answer }] } : c));
     } catch (error) {
+      clearTimeout(timeoutId);
       console.error('Chat error:', error);
+      
+      let errorMessage = 'Sorry, there was an error processing your request.';
+      if (error instanceof Error) {
+        if (error.name === 'AbortError') {
+          errorMessage = 'Request timeout - the question took too long to process. Please try again.';
+        } else if (error.message.includes('Failed to fetch')) {
+          errorMessage = 'Unable to connect to the server. Please check if the backend is running.';
+        }
+      }
+      
       // Add an error message to the conversation
       setConversations(prev => prev.map(c => 
         c.id === currentConvId ? 
-        { ...c, messages: [...c.messages, { role: 'bot', content: 'Sorry, there was an error processing your request.' }] } : 
+        { ...c, messages: [...c.messages, { role: 'bot', content: errorMessage }] } : 
         c
       ));
     }

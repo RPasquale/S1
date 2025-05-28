@@ -24,22 +24,37 @@ const ModelTrainingStatus: React.FC<ModelTrainingStatusProps> = ({ isOpen, onClo
     completed_steps: [],
     errors: []
   });
-
   // Polling interval for status updates (in milliseconds)
-  const STATUS_POLL_INTERVAL = 3000;
+  const STATUS_POLL_INTERVAL = 5000; // Increased from 3000 to reduce request frequency
 
   useEffect(() => {
     let intervalId: number | null = null;
+    let isMounted = true; // Flag to prevent state updates after unmount
 
     const fetchStatus = async () => {
+      // Don't make requests if component is unmounted
+      if (!isMounted) return;
+      
+      // Create an AbortController for request timeout
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+      
       try {
-        const response = await fetch('/api/training/status');
-        if (response.ok) {
+        const response = await fetch('/api/training/status', {
+          signal: controller.signal,
+          headers: {
+            'Cache-Control': 'no-cache'
+          }
+        });
+        
+        clearTimeout(timeoutId);
+        
+        if (response.ok && isMounted) {
           const data = await response.json();
           setTrainingStatus(data);
 
-          // Stop polling when training is complete
-          if (!data.is_training && data.progress === 100) {
+          // Stop polling when training is complete or not running
+          if (!data.is_training) {
             if (intervalId) {
               window.clearInterval(intervalId);
               intervalId = null;
@@ -47,7 +62,13 @@ const ModelTrainingStatus: React.FC<ModelTrainingStatusProps> = ({ isOpen, onClo
           }
         }
       } catch (error) {
-        console.error('Error fetching training status:', error);
+        clearTimeout(timeoutId);
+        if (isMounted && error instanceof Error) {
+          // Only log non-abort errors
+          if (error.name !== 'AbortError') {
+            console.error('Error fetching training status:', error);
+          }
+        }
       }
     };
 
@@ -56,55 +77,81 @@ const ModelTrainingStatus: React.FC<ModelTrainingStatusProps> = ({ isOpen, onClo
       // Fetch initial status
       fetchStatus();
       
-      // Start polling
-      intervalId = window.setInterval(fetchStatus, STATUS_POLL_INTERVAL);
+      // Start polling with debouncing to prevent overlapping requests
+      intervalId = window.setInterval(() => {
+        if (isMounted) {
+          fetchStatus();
+        }
+      }, STATUS_POLL_INTERVAL);
     }
 
     return () => {
       // Clean up interval on component unmount or when modal closes
+      isMounted = false;
       if (intervalId) {
         window.clearInterval(intervalId);
       }
     };
   }, [isOpen]);
-
   const handleStartTraining = async () => {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+    
     try {
       await fetch('/api/training/start', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-        }
+        },
+        signal: controller.signal
       });
       
+      clearTimeout(timeoutId);
+      
       // Fetch status update immediately
-      const response = await fetch('/api/training/status');
+      const response = await fetch('/api/training/status', {
+        signal: controller.signal
+      });
       if (response.ok) {
         const data = await response.json();
         setTrainingStatus(data);
       }
     } catch (error) {
-      console.error('Error starting training:', error);
+      clearTimeout(timeoutId);
+      if (error instanceof Error && error.name !== 'AbortError') {
+        console.error('Error starting training:', error);
+      }
     }
   };
 
   const handleCancelTraining = async () => {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+    
     try {
       await fetch('/api/training/cancel', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-        }
+        },
+        signal: controller.signal
       });
       
+      clearTimeout(timeoutId);
+      
       // Fetch status update immediately
-      const response = await fetch('/api/training/status');
+      const response = await fetch('/api/training/status', {
+        signal: controller.signal
+      });
       if (response.ok) {
         const data = await response.json();
         setTrainingStatus(data);
       }
     } catch (error) {
-      console.error('Error cancelling training:', error);
+      clearTimeout(timeoutId);
+      if (error instanceof Error && error.name !== 'AbortError') {
+        console.error('Error cancelling training:', error);
+      }
     }
   };
 

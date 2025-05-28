@@ -218,11 +218,13 @@ async def delete_conversation(conversation_id: str):
 @app.get("/training/status")
 async def get_training_status():
     """Get current model training status."""
+    global training_status
     return training_status
 
 @app.post("/training/start")
 async def start_training(background_tasks: BackgroundTasks):
     """Manually start model training."""
+    global training_status
     if training_status["is_training"]:
         raise HTTPException(status_code=400, detail="Training already in progress")
     
@@ -232,12 +234,13 @@ async def start_training(background_tasks: BackgroundTasks):
 @app.post("/training/cancel")
 async def cancel_training():
     """Cancel ongoing model training."""
+    global training_status
+    
     if not training_status["is_training"]:
         raise HTTPException(status_code=400, detail="No training in progress")
     
     # In a real implementation, we would need a proper way to cancel the background task
     # This is just a simple state change
-    global training_status
     training_status["is_training"] = False
     training_status["status_message"] = "Training cancelled by user"
     return {"status": "cancelled"}
