@@ -6,3 +6,7 @@
 /pylate-index/index
 # Ignore the virtual environment directory
 # Ignore Python cache files
+node_modules/
+*.svg
+*json
+*.png

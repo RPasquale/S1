@@ -74,6 +74,42 @@ The script will retrieve the top K relevant PDFs, assemble their text, and call 
 - **LLM Errors**: Verify your Ollama server is running and `api_base`/`api_key` in `model.py` are correct.
 
 
+## Running the Application
+
+### 1. Start the Python Backend
+This serves `/upload` and `/chat` endpoints and powers the Retriever + LLM logic.
+
+```powershell
+# Activate your virtual environment
+.\.\venv\Scripts\Activate
+
+# Install any new dependencies
+pip install fastapi uvicorn python-multipart
+
+# Run the server with hot-reload on localhost
+uvicorn server:app --host 127.0.0.1 --reload --port 5000
+```
+
+### 2. Start the React + TypeScript Frontend
+This provides the chat UI, markdown rendering, and folder uploader.
+
+```powershell
+cd frontend
+npm install
+npm run dev
+```
+
+By default, Vite is configured to proxy `/chat` and `/upload` calls to `http://localhost:5000`. 
+
+Open http://localhost:5173 in your browser to start using the chat interface.
+
+
+## Next Steps
+- Customize styling or component layout in `frontend/src`.
+- Adjust `model.py` or `server.py` for advanced QA flows.
+- Add error handling and validation in the upload/chat endpoints.
+
+
 ## License
 
 This project is released under the MIT License. See [LICENSE](LICENSE) for details.
