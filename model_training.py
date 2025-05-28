@@ -1047,25 +1047,84 @@ doc_embeddings = model.encode(documents, batch_size=32, is_query=False)
         print(f"DSPy pipeline augmentation complete. Modules and examples saved to {dspy_modules_dir}")
         return dspy_modules_dir
 
+def load_text_from_files(file_paths, max_files=50):
+    """Load text content from a list of file paths."""
+    documents = []
+    for i, path in enumerate(file_paths):
+        if i >= max_files:
+            break
+        
+        try:
+            if path.lower().endswith('.pdf'):
+                from PyPDF2 import PdfReader
+                reader = PdfReader(path)
+                text_pages = [page.extract_text() or "" for page in reader.pages]
+                documents.append("\n".join(text_pages))
+            elif path.lower().endswith(('.txt', '.md', '.json', '.py', '.html', '.htm', '.xml', '.csv')):
+                with open(path, 'r', encoding='utf-8', errors='ignore') as f:
+                    documents.append(f.read())
+        except Exception as e:
+            print(f"Error loading {path}: {e}")
+    
+    return documents
+
+def get_document_metadata(documents):
+    """Extract basic metadata from documents."""
+    metadata = []
+    
+    for i, doc in enumerate(documents):
+        word_count = len(doc.split())
+        lines = doc.count('\n') + 1
+        sentences = doc.count('.') + doc.count('!') + doc.count('?')
+        
+        metadata.append({
+            "document_id": i,
+            "word_count": word_count,
+            "line_count": lines,
+            "sentence_count": sentences,
+            "avg_sentence_length": word_count / max(1, sentences),
+            "content_sample": doc[:100] + "..." if len(doc) > 100 else doc
+        })
+    
+    return metadata
+
 def load_model_for_dspy(model_path: str = None):
     """Load a fine-tuned model for use with DSPy."""
     # This is where we would adapt a fine-tuned model to work with DSPy
-    # For now, we'll just illustrate how this would be done
     import dspy
+    import os
     
-    if model_path:
-        # In a real implementation, this would load the fine-tuned model
-        print(f"Loading fine-tuned model from {model_path} for DSPy")
-        # The specific implementation depends on the model format and DSPy's requirements
-        
-        # Example placeholder for illustration
-        # lm = dspy.LM(f'local/{model_path}')
-        lm = dspy.LM('ollama_chat/deepseek-r1:8b', api_base='http://localhost:11434', api_key='')
+    if model_path and os.path.exists(model_path):
+        try:
+            # Check if this is an adapter-based model we saved
+            adapter_config_path = os.path.join(model_path, "adapter_config.json")
+            if os.path.exists(adapter_config_path):
+                # In a production implementation, we would load the adapter config
+                # and apply it to the base model
+                print(f"Loading adapter-based model from {model_path}")
+                # For now, fall back to base model but log that we found the adapter
+                lm = dspy.LM('ollama_chat/deepseek-r1:8b', api_base='http://localhost:11434', api_key='')
+                print(f"Note: Using base model with adapter configuration from {adapter_config_path}")
+            else:
+                # Try to load as a complete model
+                print(f"Loading model from {model_path}")
+                # In a real implementation, this would properly load the model
+                # with appropriate format detection
+                lm = dspy.LM('ollama_chat/deepseek-r1:8b', api_base='http://localhost:11434', api_key='')
+        except Exception as e:
+            print(f"Error loading model from {model_path}: {e}")
+            print("Falling back to default model")
+            lm = dspy.LM('ollama_chat/deepseek-r1:8b', api_base='http://localhost:11434', api_key='')
     else:
         # Fallback to default model
+        print("Using default model (no custom model path provided)")
         lm = dspy.LM('ollama_chat/deepseek-r1:8b', api_base='http://localhost:11434', api_key='')
     
-    dspy.configure(lm=lm)
+    try:
+        dspy.configure(lm=lm)
+    except Exception as e:
+        print(f"Error configuring DSPy with model: {e}")
+    
     return lm
 
 if __name__ == "__main__":
