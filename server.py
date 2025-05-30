@@ -32,7 +32,7 @@ def extract_documents_from_pdfs():
     from PyPDF2 import PdfReader
     documents = []
     
-    for root, dirs, files in os.walk(model.doc_folder):
+    for root, dirs, files in os.walk(model.DOC_FOLDER):
         for fname in files:
             if fname.lower().endswith('.pdf'):
                 try:
@@ -126,7 +126,7 @@ async def upload(background_tasks: BackgroundTasks, files: List[UploadFile] = Fi
     upload_count = 0
     for f in files:
         try:
-            dest = os.path.join(model.doc_folder, f.filename)
+            dest = os.path.join(model.DOC_FOLDER, f.filename)
             os.makedirs(os.path.dirname(dest), exist_ok=True)
             with open(dest, "wb") as out:
                 out.write(await f.read())
@@ -135,8 +135,8 @@ async def upload(background_tasks: BackgroundTasks, files: List[UploadFile] = Fi
             return {"status": "error", "message": f"Error saving {f.filename}: {str(e)}"}
     
     # Remove existing index to force rebuild
-    if os.path.exists(model.index_folder):
-        shutil.rmtree(model.index_folder)
+    if os.path.exists(model.INDEX_FOLDER):
+        shutil.rmtree(model.INDEX_FOLDER)
     
     # Reload model to trigger indexing on import
     importlib.reload(model)

@@ -1,4 +1,8 @@
-# PDF QA Chatbot with Advanced Training
+# S1 Agent
+
+Introduction
+
+A typescript / react agent that allows users to create custom dspy functions, and train an agent on any folder of data and see the reasoning traces. The agent consists of different outputs, and different dspy functions , mapping the input data to the output parameters and to the output data. The agent consists of 1 embedding model (reason-modernColBert), and one llm (deepseek r1), and these two models are used in many different dspy functions. The user can also plug in urls, and extract text from a website, explore all the possible pages, extract all the tokens, and train the models on it. The S1 Agents will be grown and used for all different kinds of tasks. whenever a set of docuemnts, or dataset needs to be queried in any way or analysed or tested. 
 
 This project lets you interactively query a collection of PDFs with advanced model training and optimization features:
 
