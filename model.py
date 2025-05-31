@@ -4,9 +4,15 @@ import sys
 from PyPDF2 import PdfReader
 from pylate import indexes, models, retrieve
 from dspy import ChainOfThought
+import logging
+
+# Set up logging
+logging.basicConfig(level=logging.INFO, 
+                   format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
 # Global constants
-DOC_FOLDER = r"C:\Users\Admin\OneDrive\CFAL2"
+# Updated DOC_FOLDER to match the path in cfa_training_config.json
+DOC_FOLDER = r"C:\Users\robbi\OneDrive\CFA" 
 INDEX_FOLDER = "pylate-index"
 
 # Global variables to store initialized components
@@ -27,9 +33,21 @@ def initialize_dspy_model():
     return lm
 
 def initialize_colbert_model():
-    """Initialize the ColBERT embedding model"""
+    """Initialize the embedding model"""
     global model
     if model is None:
+        # First try to use our trained model
+        cfa_model_path = "./trained_models/cfa_models"
+        if os.path.exists(cfa_model_path):
+            try:
+                from sentence_transformers import SentenceTransformer
+                model = SentenceTransformer(cfa_model_path)
+                print(f"Loaded custom trained CFA embedding model from {cfa_model_path}")
+                return model
+            except Exception as e:
+                print(f"Error loading CFA model: {e}, falling back to default model")
+                
+        # Fall back to the default model if custom model fails
         pylate_model_id = "lightonai/Reason-ModernColBERT"
         model = models.ColBERT(model_name_or_path=pylate_model_id)
     return model

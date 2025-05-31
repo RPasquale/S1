@@ -10,9 +10,21 @@ import ModelTrainingStatus from './ModelTrainingStatus';
 import TrainingModal from './TrainingModal';
 import DataExtractionModal from './DataExtractionModal';
 import DSPyFunctionCreator from './DSPyFunctionCreator';
+import FileTree from './FileTree';
+import DocumentViewer from './DocumentViewer';
+import EmbeddingTrainingModal from './EmbeddingTrainingModal';
 
 type Message = { role: 'user' | 'bot'; content: string };
 type Conversation = { id: string; messages: Message[] };
+
+interface FileNode {
+  name: string;
+  path: string;
+  type: 'file' | 'folder';
+  children?: FileNode[];
+  size?: number;
+  lastModified?: number;
+}
 
 // Helper function to generate unique IDs
 const generateUniqueId = () => {
@@ -30,8 +42,16 @@ function App() {
   const [advancedTrainingModalOpen, setAdvancedTrainingModalOpen] = useState(false);
   const [dataExtractionModalOpen, setDataExtractionModalOpen] = useState(false);
   const [dspyFunctionCreatorOpen, setDspyFunctionCreatorOpen] = useState(false);
+  const [embeddingTrainingModalOpen, setEmbeddingTrainingModalOpen] = useState(false);
+  const [uploadedFiles, setUploadedFiles] = useState<FileNode[]>([]);
+  const [documentViewerOpen, setDocumentViewerOpen] = useState(false);
+  const [selectedFile, setSelectedFile] = useState<FileNode | null>(null);
   
-  useEffect(() => { newConversation(); }, []);
+  // Load file list on component mount and initialize new conversation
+  useEffect(() => { 
+    newConversation(); 
+    refreshFileList();
+  }, []);
   
   const newConversation = () => {
     const id = generateUniqueId();
@@ -43,11 +63,58 @@ function App() {
   const activeConversation = conversations.find(c => c.id === currentConvId);
   const currentMessages = activeConversation?.messages ?? [];
 
+  // Function to build file tree structure from FileList
+  const buildFileTree = (files: FileList): FileNode[] => {
+    const fileMap: { [path: string]: FileNode } = {};
+    const rootNodes: FileNode[] = [];
+
+    Array.from(files).forEach(file => {
+      const pathParts = file.webkitRelativePath.split('/');
+      let currentPath = '';
+      
+      pathParts.forEach((part, index) => {
+        const previousPath = currentPath;
+        currentPath = currentPath ? `${currentPath}/${part}` : part;
+        
+        if (!fileMap[currentPath]) {
+          const isFile = index === pathParts.length - 1;
+          const node: FileNode = {
+            name: part,
+            path: currentPath,
+            type: isFile ? 'file' : 'folder',
+            children: isFile ? undefined : [],
+            size: isFile ? file.size : undefined,
+            lastModified: isFile ? file.lastModified : undefined
+          };
+          
+          fileMap[currentPath] = node;
+          
+          if (index === 0) {
+            // Root level
+            rootNodes.push(node);
+          } else {
+            // Add to parent
+            const parent = fileMap[previousPath];
+            if (parent && parent.children) {
+              parent.children.push(node);
+            }
+          }
+        }
+      });
+    });
+
+    return rootNodes;
+  };
+
   const handleUpload = async (files: FileList) => {
     try {
       const form = new FormData();
       const totalFiles = files.length;
       let uploadedCount = 0;
+      
+      // Build file tree structure for immediate display
+      const fileTree = buildFileTree(files);
+      setUploadedFiles(fileTree);
       
       // Open modal in uploading state
       setModalOpen(true);
@@ -85,6 +152,9 @@ function App() {
           clearInterval(progressInterval);
           setUploadStage('complete');
           setUploadProgress(100);
+          
+          // Refresh file list from server after upload completes
+          refreshFileList();
         }
       }, 500);
       
@@ -100,6 +170,24 @@ function App() {
       setUploadStage('error');
     }
   };
+
+  // Function to refresh file list from server
+  const refreshFileList = async () => {
+    try {
+      const response = await fetch('/api/files/list');
+      if (response.ok) {
+        const data = await response.json();
+        setUploadedFiles(data.files);
+      }
+    } catch (error) {
+      console.error('Error refreshing file list:', error);
+    }
+  };
+
+  // Load file list on component mount
+  useEffect(() => {
+    refreshFileList();
+  }, []);
   
   const closeModal = () => {
     setModalOpen(false);
@@ -140,6 +228,26 @@ function App() {
 
   const handleCloseDSPyCreator = () => {
     setDspyFunctionCreatorOpen(false);
+  };
+
+  const handleOpenEmbeddingTraining = () => {
+    setEmbeddingTrainingModalOpen(true);
+  };
+
+  const handleCloseEmbeddingTraining = () => {
+    setEmbeddingTrainingModalOpen(false);
+  };
+
+  const handleFileSelect = (file: FileNode) => {
+    if (file.type === 'file') {
+      setSelectedFile(file);
+      setDocumentViewerOpen(true);
+    }
+  };
+
+  const handleCloseDocumentViewer = () => {
+    setDocumentViewerOpen(false);
+    setSelectedFile(null);
   };
 
   const handleSaveDSPyFunction = async (func: any) => {
@@ -194,11 +302,20 @@ function App() {
         <ConversationList conversations={conversations} currentId={currentConvId} onSelect={selectConversation} />
         <FileUploader onUpload={handleUpload} />
         
+        {/* File Tree Display */}
+        <FileTree 
+          files={uploadedFiles}
+          onFileSelect={handleFileSelect}
+        />
+        
         {/* AI Agent Control Panel */}
         <div className="agent-controls">
           <h3>AI Agent Controls</h3>
           <button className="control-button" onClick={handleOpenAdvancedTraining}>
             🎯 Advanced Training
+          </button>
+          <button className="control-button" onClick={handleOpenEmbeddingTraining}>
+            🧠 Embedding Training
           </button>
           <button className="control-button" onClick={handleOpenDataExtraction}>
             📊 Data Extraction
@@ -246,6 +363,19 @@ function App() {
         isOpen={dspyFunctionCreatorOpen}
         onClose={handleCloseDSPyCreator}
         onSave={handleSaveDSPyFunction}
+      />
+      
+      {/* Document Viewer Modal */}
+      <DocumentViewer
+        isOpen={documentViewerOpen}
+        file={selectedFile}
+        onClose={handleCloseDocumentViewer}
+      />
+      
+      {/* Embedding Training Modal */}
+      <EmbeddingTrainingModal
+        isOpen={embeddingTrainingModalOpen}
+        onClose={handleCloseEmbeddingTraining}
       />
     </div>
   );
