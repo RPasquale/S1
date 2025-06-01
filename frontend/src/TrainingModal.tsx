@@ -47,8 +47,7 @@ interface DSPySignature {
 }
 
 const TrainingModal: React.FC<TrainingModalProps> = ({ isOpen, onClose }) => {
-  const [capabilities, setCapabilities] = useState<TrainingCapabilities | null>(null);
-  const [trainingConfig, setTrainingConfig] = useState<TrainingConfig>({
+  const [capabilities, setCapabilities] = useState<TrainingCapabilities | null>(null);  const [trainingConfig, setTrainingConfig] = useState<TrainingConfig>({
     training_type: 'next_token_prediction',
     epochs: 3,
     learning_rate: 0.00005,
@@ -60,6 +59,7 @@ const TrainingModal: React.FC<TrainingModalProps> = ({ isOpen, onClose }) => {
   });
   const [trainingStatus, setTrainingStatus] = useState<TrainingStatus | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'config' | 'dspy' | 'embeddings' | 'status'>('config');
   const [customSignatures, setCustomSignatures] = useState<DSPySignature[]>([]);
   const [documentText, setDocumentText] = useState('');
@@ -100,8 +100,8 @@ const TrainingModal: React.FC<TrainingModalProps> = ({ isOpen, onClose }) => {
       fetchCapabilities();
     }
   }, [isOpen]);
-
   const fetchCapabilities = async () => {
+    setLoading(true);
     try {
       const response = await fetch('/api/training/capabilities');
       if (response.ok) {
@@ -110,6 +110,8 @@ const TrainingModal: React.FC<TrainingModalProps> = ({ isOpen, onClose }) => {
       }
     } catch (error) {
       console.error('Error fetching training capabilities:', error);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -216,43 +218,48 @@ const TrainingModal: React.FC<TrainingModalProps> = ({ isOpen, onClose }) => {
       } : sig
     ));
   };
-
   if (!isOpen) return null;
 
   return (
     <div className="modal-overlay">
-      <div className="modal-content training-modal">
-        <div className="modal-header">
-          <h2>Advanced Model Training</h2>
+      <div className="modal-content training-modal">        <div className="modal-header">
+          <h2>🚀 Advanced Model Training</h2>
           <button className="close-button" onClick={onClose}>×</button>
         </div>
-
-        <div className="training-tabs">
-          <button 
-            className={`tab ${activeTab === 'config' ? 'active' : ''}`}
-            onClick={() => setActiveTab('config')}
-          >
-            Training Config
-          </button>
-          <button 
-            className={`tab ${activeTab === 'dspy' ? 'active' : ''}`}
-            onClick={() => setActiveTab('dspy')}
-          >
-            DSPy Signatures
-          </button>
-          <button 
-            className={`tab ${activeTab === 'embeddings' ? 'active' : ''}`}
-            onClick={() => setActiveTab('embeddings')}
-          >
-            Embeddings
-          </button>
-          <button 
-            className={`tab ${activeTab === 'status' ? 'active' : ''}`}
-            onClick={() => setActiveTab('status')}
-          >
-            Training Status
-          </button>
-        </div>
+          {loading && (
+          <div className="loading-container">
+            <div className="spinner"></div>
+            <p>Loading training capabilities...</p>
+          </div>
+        )}
+          {!loading && (
+          <div className="training-tabs">
+            <button 
+              className={`tab ${activeTab === 'config' ? 'active' : ''}`}
+              onClick={() => setActiveTab('config')}
+            >
+              🔧 Training Config
+            </button>
+            <button 
+              className={`tab ${activeTab === 'dspy' ? 'active' : ''}`}
+              onClick={() => setActiveTab('dspy')}
+            >
+              🔗 DSPy Signatures
+            </button>
+            <button 
+              className={`tab ${activeTab === 'embeddings' ? 'active' : ''}`}
+              onClick={() => setActiveTab('embeddings')}
+            >
+              🎯 Embeddings
+            </button>
+            <button 
+              className={`tab ${activeTab === 'status' ? 'active' : ''}`}
+              onClick={() => setActiveTab('status')}
+            >
+              📊 Training Status
+            </button>
+          </div>
+        )}
 
         <div className="tab-content">
           {activeTab === 'config' && (
@@ -262,18 +269,17 @@ const TrainingModal: React.FC<TrainingModalProps> = ({ isOpen, onClose }) => {
                 <select 
                   value={trainingConfig.training_type}
                   onChange={(e) => setTrainingConfig(prev => ({ ...prev, training_type: e.target.value }))}
-                >
-                  {capabilities?.training_types && Object.entries(capabilities.training_types).map(([key, info]) => (
+                >                  {capabilities?.training_types && Object.entries(capabilities.training_types).map(([key, info]) => (
                     <option key={key} value={key} disabled={!info.available}>
                       {key.replace('_', ' ').toUpperCase()} 
                       {!info.available && ' (Not Available)'}
                     </option>
                   ))}
                 </select>
-                {capabilities?.training_types[trainingConfig.training_type] && (
+                  {capabilities?.training_types && capabilities.training_types[trainingConfig.training_type] && (
                   <div className="training-type-info">
                     <p>{capabilities.training_types[trainingConfig.training_type].description}</p>
-                    <p><strong>Requirements:</strong> {capabilities.training_types[trainingConfig.training_type].requirements.join(', ')}</p>
+                    <p><strong>Requirements:</strong> {capabilities.training_types[trainingConfig.training_type].requirements?.join(', ') || 'None specified'}</p>
                   </div>
                 )}
               </div>
@@ -332,11 +338,10 @@ const TrainingModal: React.FC<TrainingModalProps> = ({ isOpen, onClose }) => {
                       multiple 
                       accept=".txt,.md,.pdf,.py,.js,.html,.json"
                       onChange={handleFileUpload}
-                      disabled={uploading}
-                    />
+                      disabled={uploading}                    />
                     {uploading ? 'Uploading...' : 'Upload Documents'}
                   </label>
-                  <p>Supported formats: {capabilities?.supported_formats.join(', ')}</p>
+                  <p>Supported formats: {capabilities?.supported_formats?.join(', ') || 'Loading...'}</p>
                 </div>
 
                 <div className="text-input-section">
@@ -618,21 +623,19 @@ const TrainingModal: React.FC<TrainingModalProps> = ({ isOpen, onClose }) => {
                   )}
                 </div>
               </div>
-            </div>
-          )}
-        </div>
-
-        <div className="modal-footer">
+            </div>          )}
+        </div>        <div className="modal-footer">
           <button 
             onClick={startTraining}
             disabled={
-              trainingConfig.documents.length === 0 && 
-              trainingConfig.file_paths.length === 0 ||
-              !capabilities?.training_types[trainingConfig.training_type]?.available
+              (trainingConfig.documents.length === 0 && 
+              trainingConfig.file_paths.length === 0) ||
+              (!capabilities?.training_types || 
+              !capabilities?.training_types[trainingConfig.training_type] || 
+              !capabilities?.training_types[trainingConfig.training_type].available)
             }
             className="start-training-btn"
-          >
-            Start Training
+          >            Start Training
           </button>
           <button onClick={onClose}>Close</button>
         </div>

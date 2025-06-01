@@ -1,17 +1,37 @@
 /* Reset and variables */
 :root {
-  --primary: #3b82f6;
-  --primary-hover: #2563eb;
-  --primary-light: rgba(59, 130, 246, 0.1);
-  --bg-dark: #111827;
-  --bg-sidebar: #1f2937;
-  --bg-message: #374151;
-  --text: #f3f4f6;
-  --text-light: #9ca3af;
-  --border: #4b5563;
-  --border-light: rgba(75, 85, 99, 0.4);
-  --shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+  /* Primary color palette - professional blue */
+  --primary: #0067c7;
+  --primary-hover: #00519e;
+  --primary-light: rgba(0, 103, 199, 0.08);
+  
+  /* Background colors - soft neutrals for better readability */
+  --bg-dark: #f8f9fa;
+  --bg-sidebar: #ffffff;
+  --bg-message: #f0f2f5;
+  
+  /* Text colors - high contrast for readability */
+  --text: #333333;
+  --text-light: #6c757d;
+  
+  /* Border and accent colors */
+  --border: #e0e0e0;
+  --border-light: rgba(224, 224, 224, 0.6);
+  
+  /* Consistent shadows and radius */
+  --shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  --shadow-heavy: 0 4px 12px rgba(0, 0, 0, 0.12);
   --radius: 8px;
+  
+  /* Message colors */
+  --user-message-bg: #e6f2ff;
+  --bot-message-bg: #ffffff;
+  
+  /* Status colors */
+  --success: #37b24d;
+  --warning: #f59f00;
+  --error: #e03131;
+  --info: #228be6;
 }
 
 * {
@@ -26,6 +46,8 @@ body {
   padding: 0;
   background-color: var(--bg-dark);
   color: var(--text);
+  font-size: 16px;
+  line-height: 1.5;
 }
 
 #root {
@@ -43,6 +65,7 @@ body {
   background: var(--bg-dark);
   color: var(--text);
   overflow: hidden;
+  box-shadow: var(--shadow);
 }
 
 /* Sidebar styling */
@@ -53,9 +76,11 @@ body {
   border-right: 1px solid var(--border);
   display: flex;
   flex-direction: column;
-  padding: 1.25rem;
-  gap: 1.25rem;
+  padding: 1.5rem;
+  gap: 1.5rem;
   box-shadow: var(--shadow);
+  z-index: 10;
+  overflow-y: auto;
 }
 
 /* Logo */
@@ -94,21 +119,30 @@ body {
   border: none;
   padding: 0.875rem 1.25rem;
   border-radius: var(--radius);
-  font-weight: 600;
+  font-weight: 500;
   font-size: 0.95rem;
   cursor: pointer;
   transition: all 0.2s ease;
   width: 100%;
   box-shadow: var(--shadow);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+}
+
+.new-conversation-button svg {
+  width: 18px;
+  height: 18px;
 }
 
 .new-conversation-button:hover {
   background: var(--primary-hover);
-  transform: translateY(-1px);
 }
 
 .new-conversation-button:active {
   transform: translateY(1px);
+  box-shadow: none;
 }
 
 /* Conversation list */
@@ -171,46 +205,70 @@ body {
   display: flex;
   flex-direction: column;
   scroll-behavior: smooth;
+  background-color: var(--bg-dark);
+}
+
+.welcome-message {
+  text-align: center;
+  max-width: 600px;
+  margin: auto;
+  padding: 2rem;
+  border-radius: var(--radius);
+  background-color: white;
+  box-shadow: var(--shadow);
+}
+
+.welcome-message h2 {
+  font-weight: 500;
+  color: var(--primary);
+  margin-bottom: 1rem;
+}
+
+.welcome-message p {
+  color: var(--text-light);
+  line-height: 1.6;
 }
 
 .message {
-  max-width: 70%;
+  max-width: 75%;
   margin: 0.75rem 0;
   padding: 1rem 1.25rem;
   border-radius: var(--radius);
   line-height: 1.6;
   font-size: 0.975rem;
-  box-shadow: var(--shadow);
-  animation: fadeIn 0.3s ease-in-out;
+  animation: fadeIn 0.2s ease-in-out;
   word-break: break-word;
 }
 
 @keyframes fadeIn {
-  from { opacity: 0; transform: translateY(10px); }
+  from { opacity: 0; transform: translateY(5px); }
   to { opacity: 1; transform: translateY(0); }
 }
 
 .message.user {
   margin-left: auto;
-  background: var(--primary);
-  color: white;
+  background: var(--user-message-bg);
+  color: var(--text);
   border-top-right-radius: 2px;
+  box-shadow: var(--shadow);
 }
 
 .message.bot {
   margin-right: auto;
-  background: var(--bg-message);
+  background: var(--bot-message-bg);
   color: var(--text);
   border-top-left-radius: 2px;
+  box-shadow: var(--shadow);
   border-left: 3px solid var(--primary);
 }
 
 /* Message input */
 .message-input-container {
-  padding: 1.25rem;
+  padding: 1.25rem 1.5rem;
   border-top: 1px solid var(--border);
   background: var(--bg-sidebar);
   position: relative;
+  box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.03);
 }
 
 .message-input-form {
@@ -225,6 +283,9 @@ body {
   padding: 0.875rem 1rem;
   border-radius: var(--radius);
   border: 1px solid var(--border);
+  box-shadow: var(--shadow);
+  font-size: 0.95rem;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
   background: var(--bg-dark);
   color: var(--text);
   font-size: 0.95rem;
