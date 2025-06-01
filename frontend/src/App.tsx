@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import './App.css';
 import ChatWindow from './ChatWindow';
 import MessageInput from './MessageInput';
@@ -7,6 +8,7 @@ import NewConversationButton from './NewConversationButton';
 import ConversationList from './ConversationList';
 import UploadModal from './UploadModal';
 import ModelTrainingStatus from './ModelTrainingStatus';
+import DSPyGeneratorInterface from './DSPyGeneratorInterface';
 
 type Message = { role: 'user' | 'bot'; content: string };
 type Conversation = { id: string; messages: Message[] };

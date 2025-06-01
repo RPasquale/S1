@@ -15,8 +15,17 @@ from transformers import (
     Trainer, TrainingArguments
 )
 from datasets import Dataset
-from trl import PPOTrainer, PPOConfig, AutoModelForCausalLMWithValueHead
-from trl.core import respond_to_batch
+import random
+from reasoning_tracer import ReasoningTracer
+# Optional TRL imports with fallback
+TRL_AVAILABLE = False
+PPOTrainer = None
+PPOConfig = None
+AutoModelForCausalLMWithValueHead = None
+
+# Disable TRL imports due to compatibility issues with transformers 4.48.2
+# TRL requires transformers >= 4.50.0 but we need 4.48.2 for pylate compatibility
+print("Note: TRL (Transformers Reinforcement Learning) disabled due to version compatibility. Using standard fine-tuning only.")
 
 # Path configurations
 DEFAULT_OUTPUT_DIR = "trained-models"
