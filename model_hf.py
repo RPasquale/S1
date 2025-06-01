@@ -11,7 +11,7 @@ logging.basicConfig(level=logging.INFO,
                    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
 # Global constants
-DOC_FOLDER = r"C:\Users\robbi\OneDrive\CFA" 
+DOC_FOLDER = r"C:\Users\Admin\OneDrive\CFAL2" 
 INDEX_FOLDER = "pylate-index"
 
 # Global variables to store initialized components
@@ -74,10 +74,19 @@ def initialize_language_model():
 def initialize_embedding_model():
     """Initialize the embedding model"""
     global embedding_model
-                    
-    pylate_model_id = "lightonai/Reason-ModernColBERT"
-    embedding_model = models.ColBERT(model_name_or_path=pylate_model_id)
-    print(f"✅ Loaded PyLate embedding model: {pylate_model_id}")
+    
+    if embedding_model is None:
+        pylate_model_id = "lightonai/Reason-ModernColBERT"
+        
+        # Check if CUDA is available for embedding model
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        print(f"Loading embedding model on device: {device}")
+        
+        embedding_model = models.ColBERT(
+            model_name_or_path=pylate_model_id,
+            device=device
+        )
+        print(f"✅ Loaded PyLate embedding model: {pylate_model_id} on {device}")
     
     return embedding_model
 
@@ -173,38 +182,49 @@ def initialize_retriever():
         print("✅ Retriever initialized")
     return retriever
 
-def generate_response(prompt: str, max_length: int = 500) -> str:
+def generate_response(prompt: str, max_new_tokens: int = 300) -> str:
     """Generate a response using the Hugging Face language model"""
     try:
         lm, tok = initialize_language_model()
         
-        if isinstance(lm, pipeline):
-            # Using pipeline
-            response = lm(
-                prompt,
-                max_length=max_length,
+        print(f"🤖 Generating response for prompt length: {len(prompt)} chars")
+        
+        # Using model directly (not pipeline)
+        device = next(lm.parameters()).device
+        
+        # Properly tokenize with attention mask
+        tokenized = tok(
+            prompt, 
+            return_tensors="pt", 
+            padding=True, 
+            truncation=True, 
+            max_length=1500  # Leave room for generation
+        )
+        
+        input_ids = tokenized["input_ids"].to(device)
+        attention_mask = tokenized["attention_mask"].to(device)
+        
+        print(f"📝 Input tokens: {input_ids.shape[1]}, generating {max_new_tokens} new tokens")
+        
+        with torch.no_grad():
+            outputs = lm.generate(
+                input_ids,
+                attention_mask=attention_mask,
+                max_new_tokens=max_new_tokens,
                 num_return_sequences=1,
                 temperature=0.7,
-                pad_token_id=lm.tokenizer.eos_token_id
+                pad_token_id=tok.eos_token_id,
+                do_sample=True,
+                repetition_penalty=1.1  # Prevent repetition
             )
-            return response[0]['generated_text'][len(prompt):].strip()
-        else:
-            # Using model directly
-            inputs = tok.encode(prompt, return_tensors="pt")
-            
-            with torch.no_grad():
-                outputs = lm.generate(
-                    inputs,
-                    max_length=max_length,
-                    num_return_sequences=1,
-                    temperature=0.7,
-                    pad_token_id=tok.eos_token_id,
-                    do_sample=True
-                )
-            
-            response = tok.decode(outputs[0], skip_special_tokens=True)
-            return response[len(prompt):].strip()
-            
+        
+        # Decode only the new tokens
+        new_tokens = outputs[0][input_ids.shape[1]:]
+        response = tok.decode(new_tokens, skip_special_tokens=True)
+        
+        print(f"✅ Generated response length: {len(response)} chars")
+        return response.strip()
+        
     except Exception as e:
         print(f"❌ Error generating response: {e}")
         return f"I apologize, but I encountered an error while generating a response: {str(e)}"
@@ -220,22 +240,40 @@ def answer_question_with_docs(query: str, top_k: int = 3) -> str:
             # Fallback to simple language model response if no documents available
             prompt = f"Question: {query}\nAnswer:"
             return generate_response(prompt)
-        
-        # Encode and retrieve
+          # Encode and retrieve
         query_emb = embedding_model.encode([query], batch_size=32, is_query=True)
         raw_results = retriever.retrieve(queries_embeddings=query_emb, k=top_k)[0]
-        
-        # Collect top-k document texts
+          # Collect top-k document texts
         selected = [doc_texts[res['id']] for res in raw_results if res['id'] in doc_texts]
-
+        
+        print(f"🔍 Retrieved {len(selected)} documents for query: {query[:50]}...")
+        for i, res in enumerate(raw_results[:3]):
+            print(f"  Doc {i+1}: {res['id']} (score: {res.get('score', 'N/A')})")
+        
         if selected:
-            # Limit context length to avoid token limits
-            context = "\n\n".join(f"Document {i+1}:\n{text[:1000]}..." for i, text in enumerate(selected))
-            prompt = f"Based on the following documents, please answer the question:\n\n{context}\n\nQuestion: {query}\nAnswer:"
+            # Limit context length to avoid token limits - use smaller chunks
+            contexts = []
+            for i, text in enumerate(selected):
+                # Take first 500 chars and look for a good break point
+                chunk = text[:800]
+                if len(text) > 800:
+                    # Try to break at a sentence
+                    last_period = chunk.rfind('.')
+                    if last_period > 400:
+                        chunk = chunk[:last_period + 1]
+                contexts.append(f"Document {i+1} ({raw_results[i]['id']}):\n{chunk}")
+            
+            context = "\n\n".join(contexts)
+            prompt = f"""Based on the following CFA documents, please provide a comprehensive answer:
+
+{context}
+
+Question: {query}
+Answer:"""
         else:
             prompt = f"Question: {query}\nAnswer:"
             
-        return generate_response(prompt, max_length=300)
+        return generate_response(prompt, max_new_tokens=300)
         
     except Exception as e:
         print(f"❌ Error in answer_question_with_docs: {e}")
@@ -261,13 +299,12 @@ def test_models() -> bool:
         # Test embedding model
         if embedding_model is None:
             initialize_embedding_model()
-        
-        # Test language model
+          # Test language model
         if language_model is None:
             initialize_language_model()
-            
+        
         # Quick test
-        test_response = generate_response("Hello", max_length=50)
+        test_response = generate_response("Hello", max_new_tokens=50)
         return len(test_response) > 0
         
     except Exception as e:
@@ -276,6 +313,8 @@ def test_models() -> bool:
 
 def get_models_status() -> dict:
     """Get status of all models"""
+    voyager_index_path = os.path.join(INDEX_FOLDER, "index.voyager")
+    
     return {
         "embedding_model": {
             "loaded": embedding_model is not None,
@@ -286,10 +325,15 @@ def get_models_status() -> dict:
             "type": "Hugging Face Transformers",
         },
         "index": {
-            "exists": os.path.exists(os.path.join(INDEX_FOLDER, "index.voyager")),
+            "exists": os.path.exists(voyager_index_path),
             "documents_count": len(documents_ids) if documents_ids else 0,
+            "doc_texts_loaded": len(doc_texts) if doc_texts else 0,
+        },
+        "retriever": {
+            "loaded": retriever is not None,
         },
         "cuda_available": torch.cuda.is_available(),
+        "device": "cuda" if torch.cuda.is_available() else "cpu",
         "timestamp": str(os.times())
     }
 
