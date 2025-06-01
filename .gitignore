@@ -3,6 +3,12 @@
 *.pyc
 
 /pylate-index/*
-/pylate-index/index
+/pylate-index/
 # Ignore the virtual environment directory
 # Ignore Python cache files
+/venv/
+/node_modules/
+package-lock.json
+package.json
+frontend/node_modules/
+*.svg
