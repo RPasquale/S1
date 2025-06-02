@@ -135,21 +135,69 @@ doc_texts = dict(zip(documents_ids, documents))
 # Initialize the Voyager retriever
 retriever = retrieve.ColBERT(index=index)
 
-# Define optimized RAG pipeline
+# Define optimized RAG pipeline with memory
 class RAG(dspy.Module):
-    def __init__(self, num_docs=5):
+    def __init__(self, num_docs=5, max_history=10):
         self.num_docs = num_docs
-        self.respond = dspy.ChainOfThought('context, question -> answer')  # Changed to 'answer' for compatibility
+        self.max_history = max_history
+        self.conversation_history = []  # Store conversation history
+        self.respond = dspy.ChainOfThought('context, conversation_history, question -> answer')
 
     def forward(self, question):
         context = self.search(question, k=self.num_docs)
-        prediction = self.respond(context=context, question=question)
+        
+        # Format conversation history for context
+        history_text = self._format_conversation_history()
+        
+        prediction = self.respond(
+            context=context, 
+            conversation_history=history_text,
+            question=question
+        )
+        
+        # Store this Q&A in conversation history
+        self._add_to_history(question, prediction.answer if hasattr(prediction, 'answer') else prediction.response)
+        
         # Ensure both 'answer' and 'response' attributes are available
         if hasattr(prediction, 'answer') and not hasattr(prediction, 'response'):
             prediction.response = prediction.answer
         elif hasattr(prediction, 'response') and not hasattr(prediction, 'answer'):
             prediction.answer = prediction.response
         return prediction
+    
+    def _format_conversation_history(self):
+        """Format conversation history as a readable string"""
+        if not self.conversation_history:
+            return "No previous conversation."
+        
+        formatted_history = []
+        for i, (q, a) in enumerate(self.conversation_history, 1):
+            formatted_history.append(f"Turn {i}:")
+            formatted_history.append(f"User: {q}")
+            formatted_history.append(f"Assistant: {a}")
+            formatted_history.append("")  # Empty line for separation
+        
+        return "\n".join(formatted_history)
+    
+    def _add_to_history(self, question, answer):
+        """Add a Q&A pair to conversation history"""
+        self.conversation_history.append((question, answer))
+        
+        # Keep only the most recent exchanges to avoid token limits
+        if len(self.conversation_history) > self.max_history:
+            self.conversation_history = self.conversation_history[-self.max_history:]
+    
+    def clear_history(self):
+        """Clear conversation history"""
+        self.conversation_history = []
+        print("Conversation history cleared.")
+    
+    def get_history_summary(self):
+        """Get a summary of current conversation history"""
+        if not self.conversation_history:
+            return "No conversation history."
+        
+        return f"Conversation history ({len(self.conversation_history)} exchanges):\n" + self._format_conversation_history()
     
     def search(self, query: str, k: int = 3) -> str:
         """Search function integrated into RAG module"""
@@ -228,9 +276,15 @@ def create_cfa_training_dataset(num_examples=50):
     print(f"Generated {len(trainset)} training examples")
     return trainset
 
-# Define an answering function that retrieves relevant docs and uses the LLM
+# Define an answering function that retrieves relevant docs and uses the LLM with memory
 from dspy import ChainOfThought
+
+# Global conversation history for the fallback function
+fallback_conversation_history = []
+
 def answer_question_with_docs(query: str, top_k: int = 3) -> str:
+    global fallback_conversation_history
+    
     # Encode and retrieve
     query_emb = model.encode([query], batch_size=32, is_query=True)
     raw_results = retriever.retrieve(queries_embeddings=query_emb, k=top_k)[0]
@@ -238,10 +292,32 @@ def answer_question_with_docs(query: str, top_k: int = 3) -> str:
     selected = [doc_texts[res['id']] for res in raw_results]
 
     context = "\n\n".join(f"Document {i+1}:\n{text}" for i, text in enumerate(selected))
+    
+    # Format conversation history
+    history_text = ""
+    if fallback_conversation_history:
+        history_parts = []
+        for i, (q, a) in enumerate(fallback_conversation_history[-5:], 1):  # Last 5 exchanges
+            history_parts.append(f"Turn {i}: User: {q}")
+            history_parts.append(f"Turn {i}: Assistant: {a}")
+        history_text = "\n".join(history_parts) + "\n\n"
+    
     # Build prompt for LLM
-    prompt = f"Use the following documents to answer the question:\n{context}\n\nQuestion: {query}\nAnswer:"
+    prompt = f"""Previous conversation:
+{history_text}Use the following documents to answer the current question:
+{context}
+
+Current question: {query}
+Answer:"""
+    
     cot = ChainOfThought('question -> response')
     res = cot(question=prompt)
+    
+    # Store in fallback history
+    fallback_conversation_history.append((query, res.response))
+    if len(fallback_conversation_history) > 10:  # Keep last 10 exchanges
+        fallback_conversation_history = fallback_conversation_history[-10:]
+    
     return res.response
 
 # Initialize modules
@@ -286,8 +362,7 @@ def setup_optimized_rag():
         
         print("Initializing MIPROv2 optimizer with Windows compatibility settings...")
         
-        # Use manual optimization instead of MIPROv2 due to Windows issues
-        print("Using manual optimization approach for Windows compatibility...")
+
         
         # Create a simple optimization by using few-shot examples
         from dspy.teleprompt import BootstrapFewShot
@@ -302,7 +377,8 @@ def setup_optimized_rag():
             optimizer = BootstrapFewShot(
                 metric=lambda gold, pred, trace=None: len(pred.answer.split()) > 5,  # Simple metric
                 max_bootstrapped_demos=2,
-                max_labeled_demos=2
+                max_labeled_demos=2,
+
             )
             
             print("Compiling optimized RAG model...")
@@ -332,9 +408,11 @@ def setup_optimized_rag():
 
 # Main interactive loop
 if __name__ == "__main__":
-    print("Interactive QA over indexed PDFs. Commands:")
+    print("Interactive QA over indexed PDFs with conversation memory. Commands:")
     print("- 'article:<topic>' to generate a structured article")
     print("- 'optimize' to train and optimize the RAG pipeline")
+    print("- 'clear' to clear conversation history")
+    print("- 'history' to view conversation history")
     print("- Any other input for Q&A")
     print("- Blank input to exit")
     
@@ -349,6 +427,14 @@ if __name__ == "__main__":
         if user_input.strip().lower() == "optimize":
             print("\nStarting RAG optimization with CFA training data...")
             current_rag = setup_optimized_rag()
+            
+        elif user_input.strip().lower() == "clear":
+            current_rag.clear_history()
+            fallback_conversation_history.clear()
+            print("All conversation history cleared.")
+            
+        elif user_input.strip().lower() == "history":
+            print("\n" + current_rag.get_history_summary())
             
         elif user_input.startswith("article:"):
             topic = user_input[8:].strip()
