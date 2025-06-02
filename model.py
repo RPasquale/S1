@@ -5,7 +5,13 @@ import random
 import threading
 import multiprocessing
 import builtins
-from typing import Any, List, Optional, Tuple, Dict
+import json
+import pickle
+import datetime
+import numpy as np
+from pathlib import Path
+from dataclasses import dataclass, asdict
+from typing import Any, List, Optional, Tuple, Dict, Union, Callable
 from collections import Counter
 
 lm = dspy.LM('ollama_chat/deepseek-r1:8b', api_base='http://localhost:11434', api_key='')
@@ -891,11 +897,600 @@ def train_reasoning_with_rl():
 # Initialize reasoning module
 reasoning_rag_module = ReasoningRAG(num_docs=3, reasoning_chains=2)
 
+# Advanced Self-Training System with Judge Model and Model Checkpointing
+CHECKPOINT_DIR = Path("model_checkpoints")
+CHECKPOINT_DIR.mkdir(exist_ok=True)
+
+@dataclass
+class TrainingMetrics:
+    """Track training metrics and performance."""
+    step: int
+    train_score: float
+    val_score: float
+    test_score: float
+    judge_scores: List[float]
+    reasoning_quality: float
+    timestamp: str
+    model_state: str  # path to model checkpoint
+
+class QuestionGenerator(dspy.Signature):
+    """Generate diverse, challenging questions from document content to create training data."""
+    
+    document_content: str = dspy.InputField(desc="content from CFA documents")
+    previous_questions: List[str] = dspy.InputField(desc="previously generated questions to avoid repetition")
+    difficulty_level: str = dspy.InputField(desc="easy, medium, hard, or expert level")
+    question_type: str = dspy.InputField(desc="factual, analytical, comparative, or synthesis")
+    
+    generated_question: str = dspy.OutputField(desc="a challenging question that requires reasoning")
+    question_complexity: str = dspy.OutputField(desc="explanation of why this question is challenging")
+    expected_reasoning_steps: List[str] = dspy.OutputField(desc="key reasoning steps needed to answer")
+
+class ReasoningJudge(dspy.Signature):
+    """Judge and score reasoning chains based on quality criteria."""
+    
+    question: str = dspy.InputField(desc="the original question being answered")
+    reasoning_chain: str = dspy.InputField(desc="the reasoning chain to evaluate")
+    answer: str = dspy.InputField(desc="the final answer provided")
+    ground_truth_context: str = dspy.InputField(desc="relevant document context for verification")
+    
+    accuracy_score: float = dspy.OutputField(desc="0-1 score for factual accuracy")
+    coherence_score: float = dspy.OutputField(desc="0-1 score for logical coherence")
+    completeness_score: float = dspy.OutputField(desc="0-1 score for thoroughness")
+    evidence_score: float = dspy.OutputField(desc="0-1 score for proper use of evidence")
+    overall_score: float = dspy.OutputField(desc="0-1 overall quality score")
+    feedback: str = dspy.OutputField(desc="detailed feedback for improvement")
+    strengths: List[str] = dspy.OutputField(desc="identified strengths in reasoning")
+    weaknesses: List[str] = dspy.OutputField(desc="identified weaknesses to improve")
+
+class AdaptiveQuestionGenerator(dspy.Module):
+    """Generates diverse questions from documents with adaptive difficulty."""
+    
+    def __init__(self):
+        self.generate_question = dspy.ChainOfThought(QuestionGenerator)
+        self.question_history = []
+        self.difficulty_distribution = {"easy": 0.2, "medium": 0.4, "hard": 0.3, "expert": 0.1}
+        self.question_types = ["factual", "analytical", "comparative", "synthesis"]
+    
+    def forward(self, document_sample: str, num_questions: int = 1):
+        """Generate questions from document content."""
+        generated_questions = []
+        
+        for i in range(num_questions):
+            # Select difficulty and type
+            difficulty = np.random.choice(
+                list(self.difficulty_distribution.keys()),
+                p=list(self.difficulty_distribution.values())
+            )
+            question_type = random.choice(self.question_types)
+            
+            # Generate question
+            try:
+                result = self.generate_question(
+                    document_content=document_sample,
+                    previous_questions=self.question_history[-10:],  # Last 10 questions for context
+                    difficulty_level=difficulty,
+                    question_type=question_type
+                )
+                
+                question_data = {
+                    'question': result.generated_question,
+                    'complexity': result.question_complexity,
+                    'reasoning_steps': result.expected_reasoning_steps,
+                    'difficulty': difficulty,
+                    'type': question_type,
+                    'source_doc': document_sample[:200] + "..."
+                }
+                
+                generated_questions.append(question_data)
+                self.question_history.append(result.generated_question)
+                
+            except Exception as e:
+                print(f"⚠️ Question generation failed: {e}")
+                continue
+        
+        return generated_questions
+    
+    def adapt_difficulty(self, performance_scores: List[float]):
+        """Adapt question difficulty based on model performance."""
+        avg_performance = np.mean(performance_scores)
+        
+        if avg_performance > 0.8:  # Too easy, increase difficulty
+            self.difficulty_distribution["expert"] += 0.1
+            self.difficulty_distribution["easy"] = max(0.1, self.difficulty_distribution["easy"] - 0.1)
+        elif avg_performance < 0.5:  # Too hard, decrease difficulty
+            self.difficulty_distribution["easy"] += 0.1
+            self.difficulty_distribution["expert"] = max(0.05, self.difficulty_distribution["expert"] - 0.1)
+        
+        # Normalize
+        total = sum(self.difficulty_distribution.values())
+        for key in self.difficulty_distribution:
+            self.difficulty_distribution[key] /= total
+
+class ReasoningJudgeModel(dspy.Module):
+    """Advanced judge model that scores reasoning chains comprehensively."""
+    
+    def __init__(self):
+        self.judge = dspy.ChainOfThought(ReasoningJudge)
+        self.scoring_history = []
+        self.criteria_weights = {
+            'accuracy': 0.3,
+            'coherence': 0.25,
+            'completeness': 0.25,
+            'evidence': 0.2
+        }
+    
+    def forward(self, question: str, reasoning_chain: str, answer: str, context: str):
+        """Score a reasoning chain comprehensively."""
+        try:
+            result = self.judge(
+                question=question,
+                reasoning_chain=reasoning_chain,
+                answer=answer,
+                ground_truth_context=context
+            )
+            
+            # Calculate weighted overall score
+            weighted_score = (
+                result.accuracy_score * self.criteria_weights['accuracy'] +
+                result.coherence_score * self.criteria_weights['coherence'] +
+                result.completeness_score * self.criteria_weights['completeness'] +
+                result.evidence_score * self.criteria_weights['evidence']
+            )
+            
+            score_data = {
+                'accuracy': result.accuracy_score,
+                'coherence': result.coherence_score,
+                'completeness': result.completeness_score,
+                'evidence': result.evidence_score,
+                'overall': weighted_score,
+                'feedback': result.feedback,
+                'strengths': result.strengths,
+                'weaknesses': result.weaknesses,
+                'timestamp': datetime.datetime.now().isoformat()
+            }
+            
+            self.scoring_history.append(score_data)
+            
+            return dspy.Prediction(
+                score=weighted_score,
+                detailed_scores=score_data,
+                feedback=result.feedback
+            )
+            
+        except Exception as e:
+            print(f"⚠️ Judge scoring failed: {e}")
+            return dspy.Prediction(
+                score=0.1,
+                detailed_scores={'overall': 0.1, 'error': str(e)},
+                feedback="Scoring failed due to error"
+            )
+    
+    def get_scoring_insights(self):
+        """Get insights from scoring history."""
+        if not self.scoring_history:
+            return "No scoring history available."
+        
+        recent_scores = self.scoring_history[-20:]
+        avg_scores = {
+            criterion: np.mean([s.get(criterion, 0) for s in recent_scores])
+            for criterion in ['accuracy', 'coherence', 'completeness', 'evidence', 'overall']
+        }
+        
+        return f"""🏆 Judge Model Insights:
+- Total evaluations: {len(self.scoring_history)}
+- Recent average scores:
+  • Accuracy: {avg_scores['accuracy']:.3f}
+  • Coherence: {avg_scores['coherence']:.3f}
+  • Completeness: {avg_scores['completeness']:.3f}
+  • Evidence Use: {avg_scores['evidence']:.3f}
+  • Overall: {avg_scores['overall']:.3f}
+"""
+
+class ModelCheckpoint:
+    """Handle model checkpointing and weight management."""
+    
+    def __init__(self, checkpoint_dir: Path = CHECKPOINT_DIR):
+        self.checkpoint_dir = checkpoint_dir
+        self.checkpoint_history = []
+    
+    def save_checkpoint(self, model, metrics: TrainingMetrics, checkpoint_name: str = None):
+        """Save model checkpoint with training metrics."""
+        if checkpoint_name is None:
+            checkpoint_name = f"checkpoint_step_{metrics.step}_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        
+        checkpoint_path = self.checkpoint_dir / f"{checkpoint_name}.pkl"
+        
+        try:
+            # Save model state
+            model_data = {
+                'model_state': self._extract_model_state(model),
+                'metrics': asdict(metrics),
+                'timestamp': datetime.datetime.now().isoformat(),
+                'checkpoint_name': checkpoint_name
+            }
+            
+            with open(checkpoint_path, 'wb') as f:
+                pickle.dump(model_data, f)
+            
+            # Update metrics with checkpoint path
+            metrics.model_state = str(checkpoint_path)
+            self.checkpoint_history.append(metrics)
+            
+            print(f"✅ Checkpoint saved: {checkpoint_path}")
+            return checkpoint_path
+            
+        except Exception as e:
+            print(f"⚠️ Failed to save checkpoint: {e}")
+            return None
+    
+    def load_checkpoint(self, checkpoint_path: str):
+        """Load model checkpoint."""
+        try:
+            with open(checkpoint_path, 'rb') as f:
+                checkpoint_data = pickle.load(f)
+            
+            print(f"✅ Checkpoint loaded: {checkpoint_path}")
+            return checkpoint_data
+            
+        except Exception as e:
+            print(f"⚠️ Failed to load checkpoint: {e}")
+            return None
+    
+    def get_best_checkpoint(self, metric='val_score'):
+        """Get the best checkpoint based on a metric."""
+        if not self.checkpoint_history:
+            return None
+        
+        best_checkpoint = max(self.checkpoint_history, key=lambda x: getattr(x, metric, 0))
+        return best_checkpoint
+    
+    def _extract_model_state(self, model):
+        """Extract saveable state from model."""
+        try:
+            # For DSPy modules, save key attributes
+            state = {}
+            if hasattr(model, '__dict__'):
+                for key, value in model.__dict__.items():
+                    if not key.startswith('_') and not callable(value):
+                        try:
+                            # Test if value is serializable
+                            pickle.dumps(value)
+                            state[key] = value
+                        except:
+                            # Skip non-serializable attributes
+                            continue
+            return state
+        except Exception as e:
+            print(f"⚠️ Error extracting model state: {e}")
+            return {}
+
+class SelfTrainingLoop(dspy.Module):
+    """Complete self-training loop with question generation, reasoning, judging, and RL optimization."""
+    
+    def __init__(self, num_docs=3, reasoning_chains=3):
+        # Initialize components
+        self.question_generator = AdaptiveQuestionGenerator()
+        self.reasoning_rag = ReasoningRAG(num_docs=num_docs, reasoning_chains=reasoning_chains)
+        self.judge_model = ReasoningJudgeModel()
+        self.checkpoint_manager = ModelCheckpoint()
+        
+        # Training configuration
+        self.training_history = []
+        self.performance_history = []
+        self.current_step = 0
+        
+        # Data splits
+        self.train_docs = []
+        self.val_docs = []
+        self.test_docs = []
+        self._split_documents()
+    
+    def _split_documents(self):
+        """Split documents into train/validation/test sets."""
+        doc_items = list(doc_texts.items())
+        random.shuffle(doc_items)
+        
+        n_docs = len(doc_items)
+        train_split = int(0.7 * n_docs)
+        val_split = int(0.85 * n_docs)
+        
+        self.train_docs = doc_items[:train_split]
+        self.val_docs = doc_items[train_split:val_split]
+        self.test_docs = doc_items[val_split:]
+        
+        print(f"📊 Data split: {len(self.train_docs)} train, {len(self.val_docs)} val, {len(self.test_docs)} test docs")
+    
+    def generate_training_turn(self, doc_sample: str, num_questions: int = 3):
+        """Execute one training turn: generate questions -> reason -> judge -> score."""
+        turn_data = {
+            'step': self.current_step,
+            'questions': [],
+            'reasoning_results': [],
+            'judge_scores': [],
+            'overall_performance': 0.0
+        }
+        
+        print(f"\n🔄 Training Turn {self.current_step + 1}")
+        
+        # Step 1: Generate questions
+        print("❓ Generating questions...")
+        questions = self.question_generator(doc_sample, num_questions)
+        turn_data['questions'] = questions
+        
+        # Step 2: Process each question through reasoning
+        for i, q_data in enumerate(questions):
+            question = q_data['question']
+            print(f"🧠 Processing question {i+1}: {question[:60]}...")
+            
+            try:
+                # Get reasoning result
+                reasoning_result = self.reasoning_rag(question)
+                
+                # Get relevant context for judging
+                context = self.reasoning_rag.search(question, k=3)
+                
+                # Judge the reasoning
+                judge_result = self.judge_model(
+                    question=question,
+                    reasoning_chain=reasoning_result.reasoning_chain,
+                    answer=reasoning_result.answer,
+                    context=context
+                )
+                
+                result_data = {
+                    'question': question,
+                    'reasoning': reasoning_result,
+                    'judge_score': judge_result.score,
+                    'judge_feedback': judge_result.feedback,
+                    'detailed_scores': judge_result.detailed_scores
+                }
+                
+                turn_data['reasoning_results'].append(result_data)
+                turn_data['judge_scores'].append(judge_result.score)
+                
+                print(f"⭐ Judge score: {judge_result.score:.3f}")
+                
+            except Exception as e:
+                print(f"⚠️ Error processing question {i+1}: {e}")
+                continue
+        
+        # Step 3: Calculate overall performance
+        if turn_data['judge_scores']:
+            turn_data['overall_performance'] = np.mean(turn_data['judge_scores'])
+            print(f"📊 Turn performance: {turn_data['overall_performance']:.3f}")
+        
+        # Step 4: Adapt question difficulty based on performance
+        if turn_data['judge_scores']:
+            self.question_generator.adapt_difficulty(turn_data['judge_scores'])
+        
+        self.training_history.append(turn_data)
+        self.current_step += 1
+        
+        return turn_data
+    
+    def run_self_training(self, num_turns: int = 10, save_checkpoints: bool = True):
+        """Run complete self-training loop with RL optimization."""
+        print(f"🚀 Starting self-training loop for {num_turns} turns")
+        
+        all_scores = []
+        
+        for turn in range(num_turns):
+            # Sample document for this turn
+            if self.train_docs:
+                doc_id, doc_content = random.choice(self.train_docs)
+                doc_sample = doc_content[:2000]  # Use first 2000 chars
+            else:
+                print("⚠️ No training documents available")
+                break
+            
+            # Execute training turn
+            turn_data = self.generate_training_turn(doc_sample, num_questions=3)
+            all_scores.extend(turn_data['judge_scores'])
+            
+            # Evaluate on validation set every 3 turns
+            if (turn + 1) % 3 == 0:
+                val_score = self._evaluate_on_split('validation')
+                test_score = self._evaluate_on_split('test') if (turn + 1) % 6 == 0 else 0.0
+                
+                # Create training metrics
+                metrics = TrainingMetrics(
+                    step=self.current_step,
+                    train_score=turn_data['overall_performance'],
+                    val_score=val_score,
+                    test_score=test_score,
+                    judge_scores=turn_data['judge_scores'],
+                    reasoning_quality=np.mean(all_scores[-10:]) if all_scores else 0.0,
+                    timestamp=datetime.datetime.now().isoformat(),
+                    model_state=""
+                )
+                
+                # Save checkpoint
+                if save_checkpoints:
+                    self.checkpoint_manager.save_checkpoint(self.reasoning_rag, metrics)
+                
+                # RL training with GRPO
+                if len(all_scores) >= 10:  # Ensure we have enough data
+                    self._run_grpo_optimization(turn_data)
+                
+                print(f"📈 Validation score: {val_score:.3f}")
+                if test_score > 0:
+                    print(f"🎯 Test score: {test_score:.3f}")
+        
+        print("✅ Self-training loop completed!")
+        self._print_training_summary()
+    
+    def _evaluate_on_split(self, split_name: str, num_samples: int = 5):
+        """Evaluate model on train/validation/test split."""
+        if split_name == 'validation':
+            docs = self.val_docs
+        elif split_name == 'test':
+            docs = self.test_docs
+        else:
+            docs = self.train_docs
+        
+        if not docs:
+            return 0.0
+        
+        scores = []
+        sample_docs = random.sample(docs, min(num_samples, len(docs)))
+        
+        for doc_id, doc_content in sample_docs:
+            # Generate evaluation question
+            questions = self.question_generator(doc_content[:1500], num_questions=1)
+            if not questions:
+                continue
+            
+            question = questions[0]['question']
+            try:
+                # Get reasoning result
+                reasoning_result = self.reasoning_rag(question)
+                context = self.reasoning_rag.search(question, k=3)
+                
+                # Judge the result
+                judge_result = self.judge_model(
+                    question=question,
+                    reasoning_chain=reasoning_result.reasoning_chain,
+                    answer=reasoning_result.answer,
+                    context=context
+                )
+                
+                scores.append(judge_result.score)
+                
+            except Exception as e:
+                print(f"⚠️ Evaluation error: {e}")
+                continue
+        
+        return np.mean(scores) if scores else 0.0
+    
+    def _run_grpo_optimization(self, turn_data):
+        """Run GRPO optimization using judge scores as rewards."""
+        print("🎓 Running GRPO optimization...")
+        
+        try:
+            # Create training examples from turn data
+            grpo_trainset = []
+            for result in turn_data['reasoning_results']:
+                example = type('Example', (), {
+                    'question': result['question'],
+                    'answer': result['reasoning'].answer,
+                    'score': result['judge_score']
+                })()
+                grpo_trainset.append(example)
+            
+            # Define judge-based metric
+            def judge_based_metric(example, prediction):
+                try:
+                    # Use pre-computed judge score if available
+                    if hasattr(example, 'score'):
+                        return example.score
+                    
+                    # Otherwise use basic quality metric
+                    return reasoning_quality_metric(example, prediction)
+                except:
+                    return 0.1
+            
+            # Run GRPO optimization
+            grpo_optimizer = GRPO(
+                metric=judge_based_metric,
+                num_train_steps=5,
+                num_dspy_examples_per_grpo_step=2,
+                num_rollouts_per_grpo_step=3,
+                use_train_as_val=True,
+                num_steps_for_val=1,
+                report_train_scores=True,
+                failure_score=0.1,
+                seed=42
+            )
+            
+            optimized_model = grpo_optimizer.compile(
+                student=self.reasoning_rag,
+                trainset=grpo_trainset,
+                teacher=None
+            )
+            
+            # Update the reasoning model
+            self.reasoning_rag = optimized_model
+            print("✅ GRPO optimization completed!")
+            
+        except Exception as e:
+            print(f"⚠️ GRPO optimization failed: {e}")
+    
+    def _print_training_summary(self):
+        """Print training summary and insights."""
+        if not self.training_history:
+            return
+        
+        all_scores = []
+        for turn in self.training_history:
+            all_scores.extend(turn['judge_scores'])
+        
+        print(f"\n📊 Training Summary:")
+        print(f"- Total turns: {len(self.training_history)}")
+        print(f"- Questions generated: {sum(len(t['questions']) for t in self.training_history)}")
+        print(f"- Average performance: {np.mean(all_scores):.3f}")
+        print(f"- Performance trend: {np.mean(all_scores[-10:]) - np.mean(all_scores[:10]):.3f}")
+        print(f"- Checkpoints saved: {len(self.checkpoint_manager.checkpoint_history)}")
+        
+        # Judge model insights
+        print(self.judge_model.get_scoring_insights())
+    
+    def get_training_status(self):
+        """Get current training status and metrics."""
+        if not self.training_history:
+            return "No training sessions completed yet."
+        
+        latest_turn = self.training_history[-1]
+        return f"""🔄 Self-Training Status:
+- Current step: {self.current_step}
+- Latest performance: {latest_turn['overall_performance']:.3f}
+- Questions generated this turn: {len(latest_turn['questions'])}
+- Reasoning results: {len(latest_turn['reasoning_results'])}
+- Judge scores: {[f'{s:.2f}' for s in latest_turn['judge_scores']]}
+"""
+
+# Initialize the self-training system
+self_training_system = SelfTrainingLoop(num_docs=3, reasoning_chains=2)
+
+# Enhanced interactive commands for self-training
+def run_self_training_session(num_turns=5):
+    """Run a self-training session with specified number of turns."""
+    print(f"🚀 Starting self-training session with {num_turns} turns...")
+    self_training_system.run_self_training(num_turns=num_turns, save_checkpoints=True)
+    return "✅ Self-training session completed!"
+
+def get_judge_insights():
+    """Get insights from the judge model."""
+    return self_training_system.judge_model.get_scoring_insights()
+
+def load_best_checkpoint():
+    """Load the best performing checkpoint."""
+    best_checkpoint = self_training_system.checkpoint_manager.get_best_checkpoint()
+    if best_checkpoint:
+        print(f"📈 Best checkpoint: Step {best_checkpoint.step}, Val Score: {best_checkpoint.val_score:.3f}")
+        return f"Best model from step {best_checkpoint.step}"
+    return "No checkpoints available."
+
+def generate_training_questions(num_questions=5):
+    """Generate training questions from documents."""
+    if self_training_system.train_docs:
+        doc_id, doc_content = random.choice(self_training_system.train_docs)
+        questions = self_training_system.question_generator(doc_content[:2000], num_questions=num_questions)
+        return questions
+    return "No training documents available."
 # Interactive QA loop with advanced features
 if __name__ == "__main__":
-    print("🎯 Enhanced RAG Chat with Memory & Advanced Reasoning")
-    print("💡 Commands: 'clear' (clear history), 'history' (show history), 'reason:<question>' (advanced reasoning)")
-    print("🚀 New: 'reason_train' (train reasoning with RL), 'insights' (reasoning insights)")
+    print("🎯 Enhanced RAG Chat with Memory & Advanced Reasoning + Self-Training")
+    print("💡 Commands:")
+    print("  • 'clear' - clear history")
+    print("  • 'history' - show history") 
+    print("  • 'reason:<question>' - advanced reasoning")
+    print("  • 'reason_train' - train reasoning with RL")
+    print("  • 'insights' - reasoning insights")
+    print("  • 'self_train:<turns>' - run self-training (e.g., 'self_train:5')")
+    print("  • 'judge_insights' - judge model insights")
+    print("  • 'training_status' - current training status")
+    print("  • 'best_checkpoint' - load best checkpoint")
+    print("  • 'gen_questions:<num>' - generate training questions")
     print("❓ Type 'quit' to exit\n")
     
     while True:
@@ -923,6 +1518,42 @@ if __name__ == "__main__":
         
         elif user_query.lower() == 'insights':
             print(reasoning_rag_module.get_reasoning_insights())
+            continue
+        
+        elif user_query.lower() == 'judge_insights':
+            print(get_judge_insights())
+            continue
+        
+        elif user_query.lower() == 'training_status':
+            print(self_training_system.get_training_status())
+            continue
+        
+        elif user_query.lower() == 'best_checkpoint':
+            print(load_best_checkpoint())
+            continue
+        
+        elif user_query.lower().startswith('self_train:'):
+            # Self-training command
+            try:
+                turns = int(user_query.split(':')[1].strip())
+                print(f"🚀 Starting self-training with {turns} turns...")
+                result = run_self_training_session(turns)
+                print(result)
+            except (ValueError, IndexError):
+                print("❓ Please use format 'self_train:<number>' (e.g., 'self_train:5')")
+            continue
+        
+        elif user_query.lower().startswith('gen_questions:'):
+            # Generate training questions
+            try:
+                num_questions = int(user_query.split(':')[1].strip())
+                questions = generate_training_questions(num_questions)
+                print(f"❓ Generated {len(questions)} questions:")
+                for i, q in enumerate(questions, 1):
+                    print(f"  {i}. {q['question']}")
+                    print(f"     Type: {q['type']}, Difficulty: {q['difficulty']}")
+            except (ValueError, IndexError):
+                print("❓ Please use format 'gen_questions:<number>' (e.g., 'gen_questions:3')")
             continue
         
         elif user_query.lower().startswith('reason:'):
