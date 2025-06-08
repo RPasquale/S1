@@ -14,6 +14,9 @@ from dataclasses import dataclass, asdict
 from typing import Any, List, Optional, Tuple, Dict, Union, Callable
 from collections import Counter
 
+# Import configuration
+from config import *
+
 lm = dspy.LM('ollama_chat/deepseek-r1:8b', api_base='http://localhost:11434', api_key='')
 dspy.configure(lm=lm)
 
@@ -64,7 +67,7 @@ import os
 TEST_MODE = os.getenv('DUAL_TRAINING_TEST_MODE', 'False').lower() == 'true'
 
 # Determine if index already exists
-index_folder = "pylate-index"
+index_folder = INDEX_FOLDER
 voyager_index_path = os.path.join(index_folder, "index.voyager")
 index_exists = os.path.exists(voyager_index_path)
 
@@ -115,27 +118,30 @@ if not index_exists:
             documents_embeddings=documents_embeddings,
         )
         print("✅ Test index created successfully!")
-        
     else:
-        print("Index not found. Creating new index from CFA documents...")
-        # Step 3: Encode the documents
-        import os
+        print("Index not found. Creating new index from PDF documents...")
+        # Step 3: Encode the documents        import os
         from PyPDF2 import PdfReader
-
-        doc_folder = r"C:\Users\Admin\OneDrive\CFAL2"  # CFAL2 root containing subfolders of PDFs
         
-        # Limit documents for testing - only process first 20 files for faster indexing
-        MAX_DOCS_FOR_TESTING = 20
+        doc_folder = DOCUMENTS_FOLDER  # Generic document folder from config
+        # Limit documents for testing - only process first N files for faster indexing
+        MAX_DOCS_FOR_TESTING = MAX_DOCUMENTS_FOR_INDEXING
         processed_count = 0
         
         for root, dirs, files in os.walk(doc_folder):
             for fname in files:
-                if fname.lower().endswith('.pdf') and processed_count < MAX_DOCS_FOR_TESTING:
+                if (fname.lower().endswith('.pdf') or fname.lower().endswith('.txt')) and processed_count < MAX_DOCS_FOR_TESTING:
                     file_path = os.path.join(root, fname)
                     try:
-                        reader = PdfReader(file_path)
-                        text_pages = [page.extract_text() or "" for page in reader.pages]
-                        documents.append("\n".join(text_pages))
+                        if fname.lower().endswith('.pdf'):
+                            reader = PdfReader(file_path)
+                            text_pages = [page.extract_text() or "" for page in reader.pages]
+                            document_text = "\n".join(text_pages)
+                        else:  # .txt file
+                            with open(file_path, 'r', encoding='utf-8') as f:
+                                document_text = f.read()
+                        
+                        documents.append(document_text)
                         rel_id = os.path.relpath(file_path, doc_folder)
                         documents_ids.append(rel_id)
                         processed_count += 1
@@ -143,7 +149,16 @@ if not index_exists:
                     except Exception as e:
                         print(f"Error processing {fname}: {e}")
                         continue
+            if processed_count >= MAX_DOCS_FOR_TESTING:
+                break
 
+        if len(documents) == 0:
+            print("⚠️  No PDF documents found! Using sample documents instead...")
+            # Fall back to sample documents
+            documents = TEST_MODE_SAMPLE_DOCS
+            documents_ids = [f"sample_doc_{i+1}.txt" for i in range(len(documents))]
+            print(f"Using {len(documents)} sample documents for indexing.")
+        
         print(f"Found {len(documents)} documents. Encoding with batch_size=16...")
         documents_embeddings = model.encode(
             documents,
@@ -162,43 +177,44 @@ else:
     print("Loading existing index...")
     if TEST_MODE:
         # Load sample documents for test mode
-        documents = [
-            """Portfolio Diversification: Modern Portfolio Theory suggests that investors can reduce risk by constructing a diversified portfolio of assets that are not perfectly correlated. The key insight is that the portfolio's risk is not simply the weighted average of individual asset risks, but depends on how assets co-move with each other. Effective diversification requires understanding correlation coefficients between assets and their individual risk-return profiles.""",
-            
-            """Interest Rate Risk: Fixed-income securities are subject to interest rate risk - the risk that bond prices will decline when interest rates rise. Duration measures the price sensitivity of bonds to interest rate changes. Modified duration provides an approximation of the percentage change in bond price for a 1% change in yield. Convexity accounts for the curvature in the price-yield relationship.""",
-            
-            """Capital Asset Pricing Model (CAPM): The CAPM describes the relationship between systematic risk and expected return for assets. It states that the expected return of a security equals the risk-free rate plus a risk premium proportional to its beta. Beta measures the asset's sensitivity to market movements. The Security Market Line graphically represents this relationship."""
-        ]
+        documents = TEST_MODE_SAMPLE_DOCS
         documents_ids = [f"sample_doc_{i+1}.txt" for i in range(len(documents))]
         print(f"🧪 TEST MODE: Loaded {len(documents)} sample documents.")
-    else:
-        # Load document texts from existing PDFs (faster than re-encoding)
+    else:        # Load document texts from existing PDFs (faster than re-encoding)
         import os
         from PyPDF2 import PdfReader
         
-        doc_folder = r"C:\Users\Admin\OneDrive\CFAL2"
-        MAX_DOCS_FOR_LOADING = 20  # Limit loading as well for consistency
+        doc_folder = DOCUMENTS_FOLDER  # Generic document folder from config
+        MAX_DOCS_FOR_LOADING = MAX_DOCUMENTS_FOR_LOADING  # Use config value
         loaded_count = 0
         
         for root, dirs, files in os.walk(doc_folder):
             for fname in files:
-                if fname.lower().endswith('.pdf') and loaded_count < MAX_DOCS_FOR_LOADING:
+                if (fname.lower().endswith('.pdf') or fname.lower().endswith('.txt')) and loaded_count < MAX_DOCS_FOR_LOADING:
                     file_path = os.path.join(root, fname)
                     try:
-                        reader = PdfReader(file_path)
-                        text_pages = [page.extract_text() or "" for page in reader.pages]
-                        documents.append("\n".join(text_pages))
+                        if fname.lower().endswith('.pdf'):
+                            reader = PdfReader(file_path)
+                            text_pages = [page.extract_text() or "" for page in reader.pages]
+                            document_text = "\n".join(text_pages)
+                        else:  # .txt file
+                            with open(file_path, 'r', encoding='utf-8') as f:
+                                document_text = f.read()
+                        
+                        documents.append(document_text)
                         rel_id = os.path.relpath(file_path, doc_folder)
                         documents_ids.append(rel_id)
                         loaded_count += 1
                     except Exception as e:
                         print(f"Error loading {fname}: {e}")
                         continue
+            if loaded_count >= MAX_DOCS_FOR_LOADING:
+                break
         print(f"Loaded {len(documents)} documents from existing files.")
 
 # To load an index, simply instantiate it with the correct folder/name and without overriding it
 index = indexes.Voyager(
-    index_folder="pylate-index",
+    index_folder=INDEX_FOLDER,
     index_name="index",
 )
 
@@ -286,12 +302,12 @@ class RAG(dspy.Module):
         context = "\n\n".join(f"Document {i+1}:\n{text}" for i, text in enumerate(selected))
         return context
 
-# Function to create training dataset from CFA documents
-def create_cfa_training_dataset(num_examples=50):
-    """Generate training examples from CFA documents using question-answer generation"""
+# Function to create training dataset from PDF documents
+def create_document_training_dataset(num_examples=50):
+    """Generate training examples from PDF documents using question-answer generation"""
     import random
     
-    print("Generating training dataset from CFA documents...")
+    print("Generating training dataset from PDF documents...")
     trainset = []
     
     # Sample documents for training data generation
@@ -299,13 +315,12 @@ def create_cfa_training_dataset(num_examples=50):
     
     # Question generation signatures
     class GenerateQuestions(dspy.Signature):
-        """Generate specific, detailed questions about CFA Level 2 content from a document excerpt."""
-        
-        document_text: str = dspy.InputField(desc="excerpt from CFA Level 2 study material")
+        """Generate specific, detailed questions about document content from a document excerpt."""
+        document_text: str = dspy.InputField(desc="excerpt from document content")
         questions: list[str] = dspy.OutputField(desc="list of 3-5 specific questions that can be answered from this document")
     
     class AnswerQuestion(dspy.Signature):
-        """Answer a CFA Level 2 question using provided context."""
+        """Answer a document question using provided context."""
         
         context: str = dspy.InputField()
         question: str = dspy.InputField()
@@ -406,9 +421,8 @@ rag_module = RAG(num_docs=3)
 def setup_optimized_rag():
     """Set up and optimize the RAG pipeline with CFA training data"""
     print("Setting up optimized RAG pipeline...")
-    
-    # Generate training dataset from CFA documents
-    trainset = create_cfa_training_dataset(num_examples=30)
+      # Generate training dataset from PDF documents
+    trainset = create_document_training_dataset(num_examples=30)
     if len(trainset) == 0:
         print("No training data generated, using unoptimized RAG")
         return rag_module
@@ -498,8 +512,7 @@ import numpy as np
 # Custom GRPO Implementation
 class GRPO:
     """
-    Generalized Reward-based Preference Optimization (GRPO) for DSPy programs.
-    This is a custom implementation to replace the missing dspy.teleprompt.GRPO import.
+    Group relative policy Optimization (GRPO) for DSPy programs.
     """
     
     def __init__(

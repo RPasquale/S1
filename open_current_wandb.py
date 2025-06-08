@@ -20,7 +20,7 @@ def open_current_wandb_dashboard():
         run_id = os.path.basename(latest_run).split('-')[-1]
         
         # Construct WandB URL
-        wandb_url = f"https://wandb.ai/robbie-pasquale/CFA-Dual-Training/runs/{run_id}"
+        wandb_url = f"https://wandb.ai/robbie-pasquale/Document-Dual-Training/runs/{run_id}"
         
         print(f"📊 Latest run: {latest_run}")
         print(f"🆔 Run ID: {run_id}")

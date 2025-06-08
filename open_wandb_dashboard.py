@@ -41,7 +41,7 @@ def open_wandb_dashboard():
         # Open general WandB projects page
         webbrowser.open("https://wandb.ai/robbie-pasquale")
         print("📈 Opened WandB projects page")
-        print("🔍 Look for 'CFA-Dual-Training' project")
+        print("🔍 Look for 'Document-Dual-Training' project")
 
 if __name__ == "__main__":
     open_wandb_dashboard()

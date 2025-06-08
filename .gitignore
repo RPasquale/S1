@@ -14,3 +14,8 @@ frontend/node_modules/
 *.svg
 data.txt
 *.log
+*.json
+*.pkl
+*.sqlite
+*.voyager
+*.txt
