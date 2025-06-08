@@ -12,3 +12,5 @@ package-lock.json
 package.json
 frontend/node_modules/
 *.svg
+data.txt
+*.log

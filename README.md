@@ -54,7 +54,7 @@ Model Checkpoints ← Weight Updates & Saving
    cd C:\Users\Admin\S1
    python -m venv venv
    .\venv\Scripts\Activate
-   pip install pylate PyPDF2 dspy-ai numpy pathlib dataclasses
+   pip install pylate PyPDF2 dspy-ai numpy pathlib dataclasses matplotlib pandas psutil wandb
    ```
 
 2. **Start Ollama server:**
@@ -69,7 +69,62 @@ Model Checkpoints ← Weight Updates & Saving
    python model.py
    ```
 
+4. **Start CFA Expert Training:**
+   ```powershell
+   python train_cfa_expert.py
+   ```
+
+5. **Start Unlimited Training with WnB (New!):**
+   ```powershell
+   python unlimited_training_wnb.py
+   ```
+
 ## 🎮 How to Use
+
+### 🎓 CFA Expert Training (New!)
+
+**Launch the Ultimate Training Center:**
+```powershell
+python train_cfa_expert.py
+```
+
+**Training Options:**
+- **Quick Expert Training (4 hours)** - Fast path to CFA expertise
+- **Ultimate Long Training (8-72 hours)** - Maximum expertise development
+- **Real-time Monitoring** - Watch weight updates and progress live
+
+**Features:**
+- ✅ **Explicit Weight Tracking** - See every model update
+- ✅ **Performance Monitoring** - Real-time expertise progression
+- ✅ **Automatic Checkpointing** - Never lose training progress
+- ✅ **Multi-day Training** - Continuous learning capability
+- ✅ **Expert Assessment** - Comprehensive final evaluation
+
+### 🚀 Unlimited Training with WnB (New!)
+
+**Launch Unlimited Duration Training:**
+```powershell
+python unlimited_training_wnb.py
+```
+
+**Revolutionary Features:**
+- 🎯 **Unlimited Duration** - No time restrictions, trains until convergence
+- 📊 **Full WnB Integration** - Real-time visualization in Weights & Biases
+- 🔄 **Smart Convergence** - Advanced stopping criteria based on improvement
+- 📈 **Live Dashboards** - Monitor loss, rewards, and metrics remotely
+- 🌐 **Remote Monitoring** - Track training from anywhere
+- 📋 **Experiment Management** - Compare runs and hyperparameters
+- 🎨 **Custom Visualizations** - Advanced charts and analysis
+- 💾 **Artifact Logging** - Automatic checkpoint and model versioning
+
+**WnB Dashboard Features:**
+- Real-time loss/reward curves
+- Training dynamics visualization
+- Convergence tracking charts
+- Performance trend analysis
+- Weight update heatmaps
+- Content exploration metrics
+- Judge scoring distribution
 
 ### Interactive Chat Mode
 
@@ -197,14 +252,24 @@ checkpoint_frequency = 3  # Save every N turns
 ```
 C:\Users\Admin\S1\
 ├── model.py                    # Main agent with all components
-├── demo_self_training.py       # Demonstration script
-├── README.md                   # This file
-├── model_checkpoints/          # Saved model weights
-├── pylate-index/              # Document embeddings index
+├── unlimited_training_wnb.py   # Unlimited WnB training system (NEW!)
+├── autonomous_training.py      # Long-term autonomous training system
+├── train_cfa_expert.py        # Ultimate training launcher (NEW!)
+├── run_long_training.py       # Extended training runner (NEW!)
+├── quick_train_expert.py      # Quick 4-hour training (NEW!)
+├── monitor_training.py        # Real-time training monitor (NEW!)
+├── demo_self_training.py      # Training demonstrations
+├── README.md                  # This documentation
+├── model_checkpoints/         # Saved model weights
+├── unlimited_training_*/      # Unlimited WnB training sessions (NEW!)
+├── autonomous_training_state/ # Training progress data
+├── training_analysis/         # Performance plots and analysis
+├── ultimate_training_*/       # Extended training session data
+├── pylate-index/             # Document embeddings index
 │   └── index/
 │       ├── index.voyager
 │       └── *.sqlite
-└── venv/                      # Python virtual environment
+└── venv/                     # Python virtual environment
 ```
 
 ## 🔍 How It Works Internally
