@@ -16,7 +16,7 @@ from typing import Any, List, Optional, Tuple, Dict, Union, Callable
 from collections import Counter
 # Advanced Reasoning Components with DSPy
 from dspy.predict.predict import Predict
-from dspy.primitives.program import Module
+from dspy import Module
 from dspy.signatures import InputField, OutputField
 from dspy.signatures.signature import ensure_signature
 # Parse command line arguments
@@ -485,7 +485,7 @@ def setup_optimized_rag():
 # Custom GRPO Implementation
 class GRPO:
     """
-    Generalized Reward-based Preference Optimization (GRPO) for DSPy programs.
+    Group Relative Policy Optimization (GRPO) for DSPy programs.
     This is a custom implementation to replace the missing dspy.teleprompt.GRPO import.
     """
     
