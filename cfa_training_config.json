@@ -1,0 +1,51 @@
+{
+  "cfa_training_config": {
+    "document_folder": "C:\\Users\\robbi\\OneDrive\\CFA",
+    "output_models_dir": "./trained_models/cfa_models",
+    "supported_extensions": [".pdf", ".txt", ".docx", ".md"],
+    
+    "query_generation": {
+      "queries_per_document": 3,
+      "enable_entity_extraction": true,
+      "enable_clustering": true,
+      "parallel_processing": true,
+      "question_types": ["factual", "analytical", "comparative", "conceptual"]
+    },
+    
+    "embedding_training": {
+      "num_epochs": 3,
+      "batch_size": 8,
+      "learning_rate": 2e-5,
+      "warmup_steps": 100,
+      "max_length": 512,
+      "enable_hard_negative_mining": true,
+      "lora_config": {
+        "r": 16,
+        "lora_alpha": 32,
+        "lora_dropout": 0.1
+      }
+    },
+    
+    "dspy_pipeline": {
+      "max_queries_for_training": 50,
+      "retrieval_top_k": 5,
+      "enable_context_processing": true,
+      "enable_enhanced_rag": true
+    },
+    
+    "document_processing": {
+      "chunk_size": 1000,
+      "chunk_overlap": 200,
+      "enable_preprocessing": true,
+      "remove_headers_footers": true
+    },
+    
+    "training_optimization": {
+      "use_cuda_if_available": true,
+      "enable_mixed_precision": false,
+      "gradient_accumulation_steps": 10,
+      "save_checkpoints": true,
+      "checkpoint_every_n_epochs": 1
+    }
+  }
+}

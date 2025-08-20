@@ -8,13 +8,61 @@ import builtins
 import json
 import pickle
 import datetime
+import argparse
 import numpy as np
 from pathlib import Path
 from dataclasses import dataclass, asdict
 from typing import Any, List, Optional, Tuple, Dict, Union, Callable
 from collections import Counter
+# Advanced Reasoning Components with DSPy
+from dspy.predict.predict import Predict
+from dspy.primitives.program import Module
+from dspy.signatures import InputField, OutputField
+from dspy.signatures.signature import ensure_signature
+# Parse command line arguments
+def parse_arguments():
+    """Parse command line arguments for document folder and other options."""
+    parser = argparse.ArgumentParser(description='RAG System with Document Upload')
+    parser.add_argument(
+        '--doc-folder', 
+        type=str, 
+        default=None,
+        help='Path to folder containing PDF documents to upload (e.g., --doc-folder "C:\\Users\\robbi\\Documents\\PDFs")'
+    )
+    parser.add_argument(
+        '--rebuild-index', 
+        action='store_true',
+        help='Force rebuild of the document index even if it exists'
+    )
+    parser.add_argument(
+        '--interactive', 
+        action='store_true',
+        default=True,
+        help='Run in interactive mode (default: True)'
+    )
+    return parser.parse_args()
 
-lm = dspy.LM('ollama_chat/deepseek-r1:8b', api_base='http://localhost:11434', api_key='')
+# Parse arguments at startup
+args = parse_arguments()
+
+# Default document folder - will be overridden by command line argument
+DEFAULT_DOC_FOLDER = r"C:\Users\robbi\OneDrive\CFA"
+doc_folder = args.doc_folder if args.doc_folder else DEFAULT_DOC_FOLDER
+
+print(f"📁 Document folder: {doc_folder}")
+if args.doc_folder:
+    print(f"✅ Using custom document folder from command line")
+else:
+    print(f"📋 Using default document folder. Use --doc-folder to specify a different path")
+
+# Validate document folder exists
+if not os.path.exists(doc_folder):
+    print(f"❌ Error: Document folder does not exist: {doc_folder}")
+    print(f"💡 Please specify a valid folder using --doc-folder argument")
+    print(f"📖 Example: python model.py --doc-folder \"C:\\Users\\robbi\\Documents\\MyPDFs\"")
+    sys.exit(1)
+
+lm = dspy.LM('ollama_chat/deepseek-r1:1.5b', api_base='http://localhost:11434', api_key='')
 dspy.configure(lm=lm)
 
 # Define structured output signatures
@@ -63,7 +111,10 @@ import os
 # Determine if index already exists
 index_folder = "pylate-index"
 voyager_index_path = os.path.join(index_folder, "index.voyager")
-index_exists = os.path.exists(voyager_index_path)
+index_exists = os.path.exists(voyager_index_path) and not args.rebuild_index
+
+if args.rebuild_index and index_exists:
+    print("🔄 Rebuilding index as requested...")
 
 # Step 1: Initialize or load the Voyager index
 from pylate import indexes
@@ -90,7 +141,7 @@ if not index_exists:
     import os
     from PyPDF2 import PdfReader
 
-    doc_folder = r"C:\Users\Admin\OneDrive\CFAL2"  # CFAL2 root containing subfolders of PDFs
+    # Use the doc_folder that was set from command line arguments
     
     for root, dirs, files in os.walk(doc_folder):
         for fname in files:
@@ -103,6 +154,13 @@ if not index_exists:
                 documents_ids.append(rel_id)
 
     print(f"Found {len(documents)} documents. Encoding...")
+    
+    if len(documents) == 0:
+        print("❌ Error: No PDF documents found in the specified folder.")
+        print(f"💡 Please check that the folder contains PDF files: {doc_folder}")
+        print(f"📖 You can specify a different folder using: --doc-folder \"path/to/your/pdfs\"")
+        sys.exit(1)
+    
     documents_embeddings = model.encode(
         documents,
         batch_size=32,
@@ -122,7 +180,7 @@ else:
     import os
     from PyPDF2 import PdfReader
     
-    doc_folder = r"C:\Users\Admin\OneDrive\CFAL2"
+    # Use the doc_folder that was set from command line arguments
     for root, dirs, files in os.walk(doc_folder):
         for fname in files:
             if fname.lower().endswith('.pdf'):
@@ -422,16 +480,7 @@ def setup_optimized_rag():
         print("Falling back to unoptimized RAG")
         return rag_module
 
-# Advanced Reasoning Components with DSPy
-from dspy.predict.predict import Predict
-from dspy.primitives.program import Module
-from dspy.signatures import InputField, OutputField
-from dspy.signatures.signature import ensure_signature
-import threading
-from typing import Any, List, Optional, Tuple, Dict, Callable
-from collections import Counter
-import random
-import numpy as np
+
 
 # Custom GRPO Implementation
 class GRPO:

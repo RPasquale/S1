@@ -1,0 +1,141 @@
+{
+  "data_sources": {
+    "dspy": {
+      "name": "Stanford DSPy",
+      "url": "https://github.com/stanfordnlp/dspy",
+      "source_type": "github",
+      "extraction_method": "repository_full",
+      "update_frequency_hours": 12,
+      "enabled": true,
+      "description": "Stanford's DSPy framework for programmatic prompting and optimization",
+      "priority": "high",
+      "extract_types": [
+        "source_code",
+        "documentation", 
+        "examples",
+        "tests",
+        "configuration"
+      ]
+    },
+    "trl_docs": {
+      "name": "Hugging Face TRL Documentation",
+      "url": "https://huggingface.co/docs/trl/en/index",
+      "source_type": "huggingface_docs",
+      "extraction_method": "documentation_crawl",
+      "update_frequency_hours": 24,
+      "enabled": true,
+      "description": "Transformer Reinforcement Learning library documentation",
+      "priority": "high",
+      "extract_types": [
+        "documentation",
+        "code_examples",
+        "tutorials"
+      ]
+    },
+    "deepseek_models": {
+      "name": "DeepSeek AI Models",
+      "url": "https://huggingface.co/deepseek-ai",
+      "source_type": "huggingface_org",
+      "extraction_method": "organization_models",
+      "update_frequency_hours": 6,
+      "enabled": true,
+      "description": "DeepSeek AI model collection for reasoning and language tasks",
+      "priority": "high",
+      "extract_types": [
+        "model_card",
+        "model_readme",
+        "model_config"
+      ]
+    },
+    "reason_moderncolbert": {
+      "name": "Reason-ModernColBERT",
+      "url": "https://huggingface.co/lightonai/Reason-ModernColBERT",
+      "source_type": "huggingface_model",
+      "extraction_method": "model_full",
+      "update_frequency_hours": 12,
+      "enabled": true,
+      "description": "Advanced ColBERT model for reasoning and embedding tasks",
+      "priority": "high",
+      "extract_types": [
+        "model_card",
+        "model_readme", 
+        "model_config"
+      ]
+    }
+  },
+  "extraction_settings": {
+    "max_concurrent_extractions": 2,
+    "retry_attempts": 3,
+    "retry_delay_seconds": 5,
+    "rate_limit_delay_seconds": 0.5,
+    "max_file_size_mb": 50,
+    "max_files_per_repo": 1000,
+    "content_min_length": 50,
+    "content_max_length": 1000000
+  },
+  "storage_settings": {
+    "database_path": "data_extraction.db",
+    "backup_frequency_hours": 24,
+    "data_retention_days": 365,
+    "export_formats": ["json", "txt", "csv"],
+    "compression_enabled": true
+  },
+  "api_settings": {
+    "host": "127.0.0.1",
+    "port": 6000,
+    "reload": true,
+    "log_level": "info",
+    "cors_enabled": true,
+    "max_search_results": 100
+  },
+  "github_settings": {
+    "clone_depth": 1,
+    "skip_binary_files": true,
+    "skip_large_files": true,
+    "include_history": false,
+    "file_extensions": [
+      ".py",
+      ".md", 
+      ".rst",
+      ".txt",
+      ".json",
+      ".yaml",
+      ".yml",
+      ".toml"
+    ],
+    "exclude_patterns": [
+      "*.pyc",
+      "__pycache__",
+      ".git",
+      "node_modules",
+      ".pytest_cache",
+      "*.log"
+    ]
+  },
+  "huggingface_settings": {
+    "cache_dir": "./hf_cache",
+    "use_auth_token": false,
+    "download_timeout": 300,
+    "max_models_per_org": 50,
+    "include_model_files": [
+      "README.md",
+      "config.json",
+      "tokenizer_config.json",
+      "generation_config.json",
+      "model_card.json"
+    ]
+  },
+  "logging": {
+    "level": "INFO",
+    "format": "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    "file": "logs/data_extraction.log",
+    "max_file_size_mb": 10,
+    "backup_count": 5
+  },
+  "monitoring": {
+    "health_check_interval_minutes": 5,
+    "performance_metrics_enabled": true,
+    "error_notification_enabled": false,
+    "webhook_url": null
+  }
+}
